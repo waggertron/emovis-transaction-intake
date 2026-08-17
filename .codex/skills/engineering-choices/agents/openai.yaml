@@ -1,0 +1,4 @@
+interface:
+  display_name: "Engineering Choices"
+  short_description: "Choose project-approved technologies"
+  default_prompt: "Use $engineering-choices to select technologies for this change."
