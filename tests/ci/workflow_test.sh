@@ -6,6 +6,10 @@ workflow=".github/workflows/ci.yml"
 grep -Fq 'contents: read' "${workflow}"
 grep -Fq 'actions/checkout@v7' "${workflow}"
 grep -Fq 'actions/setup-go@v7' "${workflow}"
+grep -Fq 'sudo apt-get install --yes ripgrep' "${workflow}" || {
+  echo "CI must install ripgrep before infrastructure policy contracts" >&2
+  exit 1
+}
 for target in test test-race coverage lint build compose-config smoke test-component test-e2e terraform-fmt terraform-validate k8s-validate test-infrastructure; do
   grep -Fq "make ${target}" "${workflow}" || { echo "CI missing make ${target}" >&2; exit 1; }
 done
