@@ -22,6 +22,7 @@ Each script must exit nonzero on a skipped assertion and verify its Compose reso
 | Element | Behavior |
 | --- | --- |
 | `lib.sh` | Provides strict HTTP/Kafka assertions and scoped Compose cleanup. |
+| `retry_test.sh` | Unit-tests bounded retry behavior for transient Compose startup failures. |
 | `memory.sh` | Runs the combined production process with the in-memory adapter. |
 | `ndjson.sh` | Runs the combined production process with persistent NDJSON and a restart. |
 | `postgres.sh` | Runs separate production API and worker processes with PostgreSQL. |

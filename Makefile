@@ -16,7 +16,7 @@ LOCAL_AUTH_MODE ?= disabled
 LOCAL_TRANSACTION_TYPES ?= toll
 LOCAL_DEFAULT_CURRENCY ?= USD
 
-.PHONY: help test test-unit test-race test-contract lint format-check vet build build-arm64 image-arm64 run-api run-worker run-local compose-up compose-down compose-config smoke coverage test-component test-component-storage test-component-postgres test-component-dynamodb test-component-kafka test-component-kafka-secure test-component-secrets test-e2e test-e2e-memory test-e2e-ndjson test-e2e-postgres test-e2e-dynamodb test-e2e-secrets test-e2e-kafka-secure test-cloud-equivalence terraform-fmt terraform-init terraform-validate terraform-plan k8s-validate test-infrastructure docs-validate security security-vuln security-secrets security-config security-image validate-static validate clean
+.PHONY: help test test-unit test-race test-contract lint format-check vet build build-arm64 image-arm64 run-api run-worker run-local compose-up compose-down compose-config smoke coverage test-component test-component-storage test-component-postgres test-component-dynamodb test-component-kafka test-component-kafka-secure test-component-secrets test-e2e test-e2e-helper test-e2e-memory test-e2e-ndjson test-e2e-postgres test-e2e-dynamodb test-e2e-secrets test-e2e-kafka-secure test-cloud-equivalence terraform-fmt terraform-init terraform-validate terraform-plan k8s-validate test-infrastructure docs-validate security security-vuln security-secrets security-config security-image validate-static validate clean
 
 help: ## Show all canonical test, build, run, Compose, component, validation, and cleanup commands
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "%-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -109,6 +109,9 @@ test-component: test-component-storage test-component-kafka test-component-kafka
 test-e2e-memory: ## Run the production HTTP, memory, outbox, and Kafka path
 	bash tests/e2e/memory.sh
 
+test-e2e-helper: ## Verify bounded retry behavior for Compose-backed E2E setup
+	bash tests/e2e/retry_test.sh
+
 test-e2e-ndjson: ## Run the production HTTP, persistent NDJSON, outbox, and Kafka path
 	bash tests/e2e/ndjson.sh
 
@@ -124,7 +127,7 @@ test-e2e-secrets: ## Run the production processes with the local secret-provider
 test-e2e-kafka-secure: ## Run the production path with local TLS and SASL/SCRAM Kafka
 	bash tests/e2e/kafka_secure.sh
 
-test-e2e: test-e2e-memory test-e2e-ndjson test-e2e-postgres test-e2e-dynamodb test-e2e-secrets test-e2e-kafka-secure ## Run every local implementation end to end
+test-e2e: test-e2e-helper test-e2e-memory test-e2e-ndjson test-e2e-postgres test-e2e-dynamodb test-e2e-secrets test-e2e-kafka-secure ## Run every local implementation end to end
 
 test-cloud-equivalence: test-e2e-postgres test-e2e-dynamodb test-e2e-secrets test-e2e-kafka-secure ## Prove each selected cloud boundary through its production local equivalent
 

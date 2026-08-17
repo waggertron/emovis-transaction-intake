@@ -19,7 +19,7 @@ Run numbering, Markdown/link, and diff checks.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| None | No active plan documents remain after the completed ingest-contract plan was archived. |
+| `2026-08-17-ci-compose-pull-resilience.md` | Tracks the bounded retry fix for transient Compose image-pull failures in hosted CI. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

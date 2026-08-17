@@ -13,6 +13,23 @@ e2e_compose() {
   docker compose -p "${E2E_PROJECT}" -f compose.yaml "$@"
 }
 
+e2e_compose_up_with_retry() {
+  local attempt=1
+  local max_attempts="${E2E_COMPOSE_MAX_ATTEMPTS:-3}"
+  local retry_delay_seconds="${E2E_COMPOSE_RETRY_DELAY_SECONDS:-5}"
+
+  until e2e_compose "$@"; do
+    if (( attempt >= max_attempts )); then
+      echo "Compose startup failed after ${max_attempts} attempts" >&2
+      return 1
+    fi
+
+    echo "Compose startup failed (attempt ${attempt}/${max_attempts}); retrying in ${retry_delay_seconds}s" >&2
+    sleep "${retry_delay_seconds}"
+    ((attempt += 1))
+  done
+}
+
 e2e_cleanup() {
   e2e_compose --profile "*" down --remove-orphans --volumes >/dev/null 2>&1 || true
   if [[ -d "${E2E_TEMP_DIR:-}" ]]; then
