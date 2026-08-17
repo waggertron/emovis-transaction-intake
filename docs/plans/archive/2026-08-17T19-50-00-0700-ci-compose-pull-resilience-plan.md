@@ -13,4 +13,4 @@
 4. [x] Add the helper test to the canonical E2E Make target and document it in directory instructions.
 5. [x] Run the focused helper test and DynamoDB E2E test locally: both passed.
 6. [x] Run the full local validation gate: `make validate` passed, including unit, race, 85% coverage, contracts, components, E2E, infrastructure, security, documentation, and hierarchy gates.
-7. [ ] Commit, push, confirm hosted CI, then archive this plan.
+7. [x] Commit and push `441b4e6`, confirm the hosted CI run passed, then archive this plan.

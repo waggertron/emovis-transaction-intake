@@ -24,6 +24,7 @@ Run numbering, Markdown/link, hierarchy, and diff checks.
 | `2026-08-17T05-37-19-0700-adversarial-review-remediation-plan.md` | Records completed adversarial-review remediation, command-first onboarding, dotenv integration, repeatability fixes, and final local evidence. |
 | `2026-08-17T13-50-00-0700-explicit-storage-selection-plan.md` | Records the explicit Terraform storage-selection decision and validation evidence. |
 | `2026-08-17T11-30-00-0700-ingest-contract-implementation.md` | Records the supplied OpenAPI ingest-contract migration, test evidence, and completion decisions. |
+| `2026-08-17T19-50-00-0700-ci-compose-pull-resilience-plan.md` | Records the tested bounded retry fix for transient Docker Hub failures during E2E Compose startup. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

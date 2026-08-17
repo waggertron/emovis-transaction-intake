@@ -19,7 +19,7 @@ Run numbering, Markdown/link, and diff checks.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `2026-08-17-ci-compose-pull-resilience.md` | Tracks the bounded retry fix for transient Compose image-pull failures in hosted CI. |
+| None | No active plan documents remain after the completed Compose pull resilience plan was archived. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).
