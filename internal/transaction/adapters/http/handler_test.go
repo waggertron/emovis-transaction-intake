@@ -130,12 +130,39 @@ func TestOperationalEndpointsAndMethodGuard(t *testing.T) {
 		{http.MethodGet, "/metrics", http.StatusOK},
 		{http.MethodGet, "/v1/transactions", http.StatusMethodNotAllowed},
 		{http.MethodGet, "/missing", http.StatusNotFound},
+		{http.MethodPost, "/healthz", http.StatusMethodNotAllowed},
+		{http.MethodPost, "/readyz", http.StatusMethodNotAllowed},
+		{http.MethodPost, "/metrics", http.StatusMethodNotAllowed},
 	} {
 		request := httptest.NewRequest(test.method, test.path, nil)
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, request)
 		if recorder.Code != test.want {
 			t.Errorf("%s %s: expected %d, got %d", test.method, test.path, test.want, recorder.Code)
+		}
+	}
+}
+
+func TestReadinessReadyAndRequestConversionFailures(t *testing.T) {
+	t.Parallel()
+	handler := testHandler(&fakeIntake{}, func() bool { return true })
+	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("ready status: %d", recorder.Code)
+	}
+	for _, body := range []string{
+		strings.Replace(validJSON(), "2026-08-16T20:30:00Z", "not-a-time", 1),
+		strings.Replace(validJSON(), `"amountMinor":725`, `"amountMinor":0`, 1),
+		validJSON() + validJSON(),
+	} {
+		request = httptest.NewRequest(http.MethodPost, "/v1/transactions", strings.NewReader(body))
+		request.Header.Set("X-API-Key", "test-key")
+		recorder = httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnprocessableEntity && recorder.Code != http.StatusBadRequest {
+			t.Fatalf("unexpected conversion status %d for %s", recorder.Code, body)
 		}
 	}
 }

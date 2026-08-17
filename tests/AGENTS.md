@@ -23,6 +23,7 @@ Run each child suite through its Make target.
 | `ci` | Validates hosted CI permissions and canonical command usage. |
 | `contracts` | Validates repository-owned external contracts. |
 | `containers` | Validates Docker build targets and complete Compose wiring. |
+| `coverage` | Verifies per-package production coverage enforcement. |
 | `smoke` | Exercises the complete local transaction-to-Kafka path and cleanup. |
 
 ## Instruction hierarchy
@@ -31,4 +32,5 @@ Run each child suite through its Make target.
 - Child: [ci/AGENTS.md](ci/AGENTS.md).
 - Child: [contracts/AGENTS.md](contracts/AGENTS.md).
 - Child: [containers/AGENTS.md](containers/AGENTS.md).
+- Child: [coverage/AGENTS.md](coverage/AGENTS.md).
 - Child: [smoke/AGENTS.md](smoke/AGENTS.md).

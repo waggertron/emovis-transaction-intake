@@ -19,6 +19,14 @@ type topicSettings struct {
 	Topic  kafkaadapter.TopicConfig
 }
 
+type kafkaConnection interface {
+	kafkaadapter.TopicAdmin
+	Controller() (kafkago.Broker, error)
+	Close() error
+}
+
+type kafkaDial func(context.Context, string, string) (kafkaConnection, error)
+
 func loadTopicSettings(lookup func(string) string) (topicSettings, error) {
 	broker := strings.TrimSpace(strings.Split(lookup("KAFKA_BROKERS"), ",")[0])
 	if broker == "" {
@@ -59,35 +67,62 @@ func positiveInteger(raw string, fallback int) (int, error) {
 	return value, nil
 }
 
-func main() {
-	settings, err := loadTopicSettings(os.Getenv)
+func runTopicBootstrap(ctx context.Context, settings topicSettings, dial kafkaDial) error {
+	seed, err := dial(ctx, "tcp", settings.Broker)
 	if err != nil {
-		slog.Error("invalid topic settings", "error", err)
-		os.Exit(1)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	dialer := &kafkago.Dialer{Timeout: 10 * time.Second}
-	seed, err := dialer.DialContext(ctx, "tcp", settings.Broker)
-	if err != nil {
-		slog.Error("connect to Kafka", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("connect to Kafka: %w", err)
 	}
 	controller, err := seed.Controller()
 	_ = seed.Close()
 	if err != nil {
-		slog.Error("discover Kafka controller", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("discover Kafka controller: %w", err)
 	}
-	admin, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port)))
+	admin, err := dial(ctx, "tcp", net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port)))
 	if err != nil {
-		slog.Error("connect to Kafka controller", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("connect to Kafka controller: %w", err)
 	}
 	defer admin.Close()
 	if err := kafkaadapter.EnsureTopic(admin, settings.Topic); err != nil {
-		slog.Error("ensure Kafka topic", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("ensure Kafka topic: %w", err)
+	}
+	return nil
+}
+
+func execute(ctx context.Context, lookup func(string) string, dial kafkaDial) (topicSettings, error) {
+	settings, err := loadTopicSettings(lookup)
+	if err != nil {
+		return topicSettings{}, err
+	}
+	if err := runTopicBootstrap(ctx, settings, dial); err != nil {
+		return topicSettings{}, err
+	}
+	return settings, nil
+}
+
+func runCLI(lookup func(string) string, dial kafkaDial) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	settings, err := execute(ctx, lookup, dial)
+	if err != nil {
+		return err
 	}
 	slog.Info("Kafka topic ready", "topic", settings.Topic.Name)
+	return nil
+}
+
+func realKafkaDial(ctx context.Context, network, address string) (kafkaConnection, error) {
+	dialer := &kafkago.Dialer{Timeout: 10 * time.Second}
+	return dialer.DialContext(ctx, network, address)
+}
+
+func exitCode(err error) int {
+	if err != nil {
+		slog.Error("bootstrap Kafka topic", "error", err)
+		return 1
+	}
+	return 0
+}
+
+func main() {
+	os.Exit(exitCode(runCLI(os.Getenv, realKafkaDial)))
 }

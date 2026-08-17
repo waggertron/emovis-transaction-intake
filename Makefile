@@ -5,9 +5,9 @@ SHELL := /bin/bash
 COMPOSE_PROJECT_NAME ?= emovis-transaction-intake
 COMPOSE_FILE ?= compose.yaml
 
-.PHONY: help test test-unit test-race test-contract lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke validate clean
+.PHONY: help test test-unit test-race test-contract lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke coverage validate clean
 
-help: ## Show the canonical commands: help test test-unit test-race test-contract lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke validate clean
+help: ## Show the canonical commands: help test test-unit test-race test-contract lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke coverage validate clean
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "%-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 test: test-unit ## Run all automated Go tests
@@ -23,6 +23,7 @@ test-contract: ## Run command, API, container, and CI contract tests
 	bash tests/contracts/openapi_test.sh
 	bash tests/containers/definitions_test.sh
 	bash tests/ci/workflow_test.sh
+	bash tests/coverage/coverage_gate_test.sh
 
 lint: format-check vet ## Run source formatting and static analysis checks
 
@@ -58,7 +59,13 @@ compose-config: ## Validate the complete Compose model without starting containe
 smoke: ## Exercise the documented transaction flow through the local stack
 	bash tests/smoke/local.sh
 
-validate: test test-contract lint compose-config ## Run the locally reproducible delivery gates
+coverage: ## Enforce at least 85 percent statement coverage in every production Go package
+	mkdir -p .local/coverage
+	go list ./... >.local/coverage/expected-packages.txt
+	go test -coverprofile=.local/coverage/unit.out ./... | tee .local/coverage/packages.txt
+	bash tests/coverage/check.sh .local/coverage/packages.txt .local/coverage/expected-packages.txt 85
+
+validate: test test-contract coverage lint compose-config ## Run the locally reproducible delivery gates
 	env PYTHONDONTWRITEBYTECODE=1 python3 .codex/skills/agent-instruction-hierarchy/scripts/validate_hierarchy.py --root .
 	git diff --check
 

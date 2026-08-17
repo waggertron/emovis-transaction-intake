@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,74 @@ func ndjsonAcceptance() app.Acceptance {
 		OccurredAt: time.Date(2026, 8, 16, 22, 0, 0, 0, time.UTC), PartnerID: transaction.PartnerID,
 		TransactionID: transaction.ID, Key: transaction.PartnerID + ":" + transaction.ID, Payload: transaction,
 	}}
+}
+
+func TestStoreRejectsInvalidPathsAndLogRecords(t *testing.T) {
+	t.Parallel()
+	if _, err := NewStore(""); err == nil {
+		t.Fatal("expected empty path failure")
+	}
+	root := t.TempDir()
+	if _, err := NewStore(root); err == nil {
+		t.Fatal("expected directory open failure")
+	}
+	for name, content := range map[string]string{
+		"invalid-json":        "not-json\n",
+		"unknown-kind":        `{"kind":"unknown"}` + "\n",
+		"missing-acceptance":  `{"kind":"accepted"}` + "\n",
+		"missing-failure":     `{"kind":"failed"}` + "\n",
+		"unknown-publication": `{"kind":"published","eventId":"missing"}` + "\n",
+		"unknown-failure":     `{"kind":"failed","failure":{"eventId":"missing"}}` + "\n",
+	} {
+		path := filepath.Join(root, name+".ndjson")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := NewStore(path); err == nil {
+			t.Fatalf("expected %s failure", name)
+		}
+	}
+	long := filepath.Join(root, "too-long.ndjson")
+	if err := os.WriteFile(long, []byte(strings.Repeat("x", 1024*1024+1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStore(long); err == nil {
+		t.Fatal("expected scanner limit failure")
+	}
+}
+
+func TestStoreReportsCancellationMissingEventsAndAppendFailure(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	store, err := NewStore(filepath.Join(t.TempDir(), "events.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Accept(ctx, ndjsonAcceptance()); err == nil {
+		t.Fatal("expected cancelled accept")
+	}
+	if _, err := store.ClaimPending(ctx, time.Now(), time.Second, 1); err == nil {
+		t.Fatal("expected cancelled claim")
+	}
+	if err := store.MarkPublished(ctx, "missing", time.Now()); err == nil {
+		t.Fatal("expected cancelled publication")
+	}
+	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: "missing"}); err == nil {
+		t.Fatal("expected cancelled failure")
+	}
+	if err := store.MarkPublished(context.Background(), "missing", time.Now()); err == nil {
+		t.Fatal("expected missing publication")
+	}
+	if err := store.RecordFailure(context.Background(), app.PublishFailure{EventID: "missing"}); err == nil {
+		t.Fatal("expected missing failure")
+	}
+
+	directoryPath := t.TempDir()
+	broken := &Store{path: directoryPath, transactions: map[string]storedTransaction{}, events: map[string]*storedEvent{}}
+	if _, err := broken.Accept(context.Background(), ndjsonAcceptance()); err == nil {
+		t.Fatal("expected append open failure")
+	}
 }
 
 func TestStorePersistsAcceptanceAndOriginalReplayAcrossRestart(t *testing.T) {

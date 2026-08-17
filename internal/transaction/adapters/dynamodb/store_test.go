@@ -25,6 +25,7 @@ type fakeClient struct {
 	updateErrors []error
 	getErr       error
 	writeErr     error
+	queryErr     error
 }
 
 func (client *fakeClient) GetItem(_ context.Context, input *awssdk.GetItemInput, _ ...func(*awssdk.Options)) (*awssdk.GetItemOutput, error) {
@@ -39,7 +40,7 @@ func (client *fakeClient) TransactWriteItems(_ context.Context, input *awssdk.Tr
 
 func (client *fakeClient) Query(_ context.Context, input *awssdk.QueryInput, _ ...func(*awssdk.Options)) (*awssdk.QueryOutput, error) {
 	client.queryInput = input
-	return &awssdk.QueryOutput{Items: client.queryItems}, nil
+	return &awssdk.QueryOutput{Items: client.queryItems}, client.queryErr
 }
 
 func (client *fakeClient) UpdateItem(_ context.Context, input *awssdk.UpdateItemInput, _ ...func(*awssdk.Options)) (*awssdk.UpdateItemOutput, error) {
@@ -191,5 +192,47 @@ func TestStorePropagatesUnexpectedLeaseAndOutcomeErrors(t *testing.T) {
 	}
 	if _, err := NewStore(client, "transactions").ClaimPending(context.Background(), time.Now(), time.Second, 1); err == nil {
 		t.Fatal("expected unexpected lease failure")
+	}
+}
+
+func TestStoreRejectsAWSAndMalformedPersistenceResults(t *testing.T) {
+	t.Parallel()
+	want := errors.New("unavailable")
+	acceptance := dynamoAcceptance()
+	if _, err := NewStore(&fakeClient{getErr: want}, "transactions").Accept(context.Background(), acceptance); !errors.Is(err, want) {
+		t.Fatalf("expected read error, got %v", err)
+	}
+	if _, err := NewStore(&fakeClient{item: map[string]types.AttributeValue{"fingerprint": &types.AttributeValueMemberS{Value: "x"}}}, "transactions").Accept(context.Background(), acceptance); err == nil {
+		t.Fatal("expected malformed identity")
+	}
+	if _, err := NewStore(&fakeClient{writeErr: want}, "transactions").Accept(context.Background(), acceptance); !errors.Is(err, want) {
+		t.Fatalf("expected write error, got %v", err)
+	}
+	store := NewStore(&fakeClient{queryErr: want}, "transactions")
+	if _, err := store.ClaimPending(context.Background(), time.Now(), time.Second, 1); !errors.Is(err, want) {
+		t.Fatalf("expected query error, got %v", err)
+	}
+	if events, err := store.ClaimPending(context.Background(), time.Now(), time.Second, 0); err != nil || len(events) != 0 {
+		t.Fatalf("zero limit: %#v %v", events, err)
+	}
+}
+
+func TestStoreRejectsMalformedPendingItemsAndOutcomeFailures(t *testing.T) {
+	t.Parallel()
+	for _, item := range []map[string]types.AttributeValue{
+		{"event_payload": &types.AttributeValueMemberB{Value: []byte("{}")}, "attempts": &types.AttributeValueMemberN{Value: "0"}},
+		{"pk": &types.AttributeValueMemberS{Value: "EVENT#x"}, "attempts": &types.AttributeValueMemberN{Value: "0"}},
+		{"pk": &types.AttributeValueMemberS{Value: "EVENT#x"}, "event_payload": &types.AttributeValueMemberB{Value: []byte("not-json")}, "attempts": &types.AttributeValueMemberN{Value: "0"}},
+		{"pk": &types.AttributeValueMemberS{Value: "EVENT#x"}, "event_payload": &types.AttributeValueMemberB{Value: []byte("{}")}, "attempts": &types.AttributeValueMemberN{Value: "not-number"}},
+	} {
+		client := &fakeClient{queryItems: []map[string]types.AttributeValue{item}}
+		if _, err := NewStore(client, "transactions").ClaimPending(context.Background(), time.Now(), time.Second, 1); err == nil {
+			t.Fatalf("expected malformed item failure: %#v", item)
+		}
+	}
+	want := errors.New("update failed")
+	client := &fakeClient{updateErrors: []error{want}}
+	if err := NewStore(client, "transactions").MarkPublished(context.Background(), "evt", time.Now()); !errors.Is(err, want) {
+		t.Fatalf("expected outcome error, got %v", err)
 	}
 }

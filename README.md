@@ -52,6 +52,7 @@ The Makefile is the documented interface for developers and CI.
 | `make compose-up` / `make compose-down` | Start or remove the named local stack. |
 | `make smoke` | Run the self-cleaning end-to-end Kafka flow. |
 | `make validate` | Run locally reproducible delivery gates. |
+| `make coverage` | Generate coverage evidence and require at least 85% statement coverage in every production Go package. |
 | `make clean` | Remove only repository-owned local artifacts. |
 
 Direct process runs require `API_KEY` and `PARTNER_ID`. Kafka defaults to `localhost:9092` and `transaction.review-candidates.v1`. Secrets are never assigned source-code defaults.

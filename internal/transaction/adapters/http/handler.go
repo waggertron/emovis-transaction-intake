@@ -175,6 +175,9 @@ func ensureJSONEnd(decoder *json.Decoder) error {
 	if errors.Is(err, io.EOF) {
 		return nil
 	}
+	if err == nil {
+		return errors.New("request contains more than one JSON value")
+	}
 	return err
 }
 

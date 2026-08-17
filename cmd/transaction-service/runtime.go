@@ -84,7 +84,16 @@ func serveAPI(ctx context.Context, config bootstrap.Config, store app.IntakeStor
 	auth := httpadapter.NewStaticAPIKeys(map[string]string{config.PartnerID: config.APIKey})
 	handler := httpadapter.NewHandler(intake, auth, rand.Text, func() bool { return true })
 	server := bootstrap.NewHTTPServer(config.Address, handler)
+	slog.Info("HTTP server starting", "address", config.Address)
+	return serveHTTPServer(ctx, server)
+}
 
+type httpServer interface {
+	ListenAndServe() error
+	Shutdown(context.Context) error
+}
+
+func serveHTTPServer(ctx context.Context, server httpServer) error {
 	shutdownComplete := make(chan struct{})
 	go func() {
 		defer close(shutdownComplete)
@@ -95,7 +104,6 @@ func serveAPI(ctx context.Context, config bootstrap.Config, store app.IntakeStor
 			slog.Error("HTTP shutdown failed", "error", err)
 		}
 	}()
-	slog.Info("HTTP server starting", "address", config.Address)
 	err := server.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		<-shutdownComplete

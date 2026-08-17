@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
+
+	kafkago "github.com/segmentio/kafka-go"
+	kafkaadapter "github.com/waggertron/emovis-transaction-intake/internal/transaction/adapters/kafka"
 )
 
 func TestLoadTopicSettingsUsesPlannedDefaults(t *testing.T) {
@@ -20,6 +25,131 @@ func TestLoadTopicSettingsUsesPlannedDefaults(t *testing.T) {
 	if settings.Broker != "kafka:9092" || settings.Topic.Name != "transaction.review-candidates.v1" || settings.Topic.Partitions != 3 || settings.Topic.ReplicationFactor != 1 || settings.Topic.Retention != 7*24*time.Hour {
 		t.Fatalf("unexpected defaults: %#v", settings)
 	}
+}
+
+type fakeKafkaConnection struct {
+	controller    kafkago.Broker
+	controllerErr error
+	createErr     error
+	closed        bool
+}
+
+func (connection *fakeKafkaConnection) Controller() (kafkago.Broker, error) {
+	return connection.controller, connection.controllerErr
+}
+func (connection *fakeKafkaConnection) CreateTopics(...kafkago.TopicConfig) error {
+	return connection.createErr
+}
+func (connection *fakeKafkaConnection) Close() error {
+	connection.closed = true
+	return nil
+}
+
+func TestRunTopicBootstrapDiscoversControllerAndEnsuresTopic(t *testing.T) {
+	t.Parallel()
+	seed := &fakeKafkaConnection{controller: kafkago.Broker{Host: "controller", Port: 9093}}
+	admin := &fakeKafkaConnection{}
+	addresses := []string{}
+	dial := func(_ context.Context, _, address string) (kafkaConnection, error) {
+		addresses = append(addresses, address)
+		if len(addresses) == 1 {
+			return seed, nil
+		}
+		return admin, nil
+	}
+	settings := topicSettings{Broker: "broker:9092", Topic: validTopicConfig()}
+	if err := runTopicBootstrap(context.Background(), settings, dial); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if len(addresses) != 2 || addresses[1] != "controller:9093" || !seed.closed || !admin.closed {
+		t.Fatalf("unexpected lifecycle: %#v seedClosed=%t adminClosed=%t", addresses, seed.closed, admin.closed)
+	}
+}
+
+func TestRunTopicBootstrapReportsConnectionAndKafkaFailures(t *testing.T) {
+	t.Parallel()
+	want := errors.New("unavailable")
+	settings := topicSettings{Broker: "broker:9092", Topic: validTopicConfig()}
+	if err := runTopicBootstrap(context.Background(), settings, func(context.Context, string, string) (kafkaConnection, error) { return nil, want }); !errors.Is(err, want) {
+		t.Fatalf("expected seed error, got %v", err)
+	}
+	seed := &fakeKafkaConnection{controllerErr: want}
+	if err := runTopicBootstrap(context.Background(), settings, func(context.Context, string, string) (kafkaConnection, error) { return seed, nil }); !errors.Is(err, want) || !seed.closed {
+		t.Fatalf("expected controller error and close, got %v", err)
+	}
+	seed = &fakeKafkaConnection{controller: kafkago.Broker{Host: "controller", Port: 9093}}
+	calls := 0
+	if err := runTopicBootstrap(context.Background(), settings, func(context.Context, string, string) (kafkaConnection, error) {
+		calls++
+		if calls == 1 {
+			return seed, nil
+		}
+		return nil, want
+	}); !errors.Is(err, want) {
+		t.Fatalf("expected admin connection error, got %v", err)
+	}
+	admin := &fakeKafkaConnection{createErr: want}
+	calls = 0
+	if err := runTopicBootstrap(context.Background(), settings, func(context.Context, string, string) (kafkaConnection, error) {
+		calls++
+		if calls == 1 {
+			return seed, nil
+		}
+		return admin, nil
+	}); !errors.Is(err, want) || !admin.closed {
+		t.Fatalf("expected topic error and close, got %v", err)
+	}
+}
+
+func TestExecuteLoadsConfigurationAndRunsBootstrap(t *testing.T) {
+	t.Parallel()
+	seed := &fakeKafkaConnection{controller: kafkago.Broker{Host: "controller", Port: 9093}}
+	admin := &fakeKafkaConnection{}
+	calls := 0
+	settings, err := execute(context.Background(), func(name string) string {
+		if name == "KAFKA_BROKERS" {
+			return "broker:9092"
+		}
+		return ""
+	}, func(context.Context, string, string) (kafkaConnection, error) {
+		calls++
+		if calls == 1 {
+			return seed, nil
+		}
+		return admin, nil
+	})
+	if err != nil || settings.Broker != "broker:9092" || calls != 2 {
+		t.Fatalf("execute result %#v calls=%d err=%v", settings, calls, err)
+	}
+	if _, err := execute(context.Background(), func(string) string { return "" }, nil); err == nil {
+		t.Fatal("expected invalid settings")
+	}
+}
+
+func TestRunCLIAndExitCode(t *testing.T) {
+	t.Parallel()
+	seed := &fakeKafkaConnection{controller: kafkago.Broker{Host: "controller", Port: 9093}}
+	admin := &fakeKafkaConnection{}
+	calls := 0
+	err := runCLI(func(name string) string {
+		if name == "KAFKA_BROKERS" {
+			return "broker:9092"
+		}
+		return ""
+	}, func(context.Context, string, string) (kafkaConnection, error) {
+		calls++
+		if calls == 1 {
+			return seed, nil
+		}
+		return admin, nil
+	})
+	if err != nil || exitCode(nil) != 0 || exitCode(errors.New("failed")) != 1 {
+		t.Fatalf("unexpected CLI result: %v", err)
+	}
+}
+
+func validTopicConfig() kafkaadapter.TopicConfig {
+	return kafkaadapter.TopicConfig{Name: "events", Partitions: 3, ReplicationFactor: 1, Retention: time.Hour}
 }
 
 func TestLoadTopicSettingsRejectsMissingOrInvalidValues(t *testing.T) {

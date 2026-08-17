@@ -1,5 +1,5 @@
 .local/
 tmp/
-coverage/
+/coverage/
 *.out
 .env

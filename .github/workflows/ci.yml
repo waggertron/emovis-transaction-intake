@@ -22,6 +22,8 @@ jobs:
         run: make test
       - name: Race tests
         run: make test-race
+      - name: Per-package coverage
+        run: make coverage
       - name: Static analysis
         run: make lint
       - name: Build commands

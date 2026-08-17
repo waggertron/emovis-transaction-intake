@@ -172,3 +172,66 @@ func TestSchemaDefinesAtomicIdentityAndOutboxLeaseState(t *testing.T) {
 		}
 	}
 }
+
+func TestStorePropagatesTransactionAndQueryFailures(t *testing.T) {
+	t.Parallel()
+	want := errors.New("database unavailable")
+	acceptance := postgresAcceptance()
+
+	database, mock, _ := sqlmock.New()
+	mock.ExpectBegin().WillReturnError(want)
+	if _, err := NewStore(database).Accept(context.Background(), acceptance); !errors.Is(err, want) {
+		t.Fatalf("begin: %v", err)
+	}
+	database.Close()
+
+	database, mock, _ = sqlmock.New()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(selectIdentitySQL)).WillReturnError(want)
+	mock.ExpectRollback()
+	if _, err := NewStore(database).Accept(context.Background(), acceptance); !errors.Is(err, want) {
+		t.Fatalf("lookup: %v", err)
+	}
+	database.Close()
+
+	database, mock, _ = sqlmock.New()
+	mock.ExpectQuery(regexp.QuoteMeta(claimPendingSQL)).WillReturnError(want)
+	if _, err := NewStore(database).ClaimPending(context.Background(), time.Now(), time.Second, 1); !errors.Is(err, want) {
+		t.Fatalf("claim: %v", err)
+	}
+	database.Close()
+
+	database, mock, _ = sqlmock.New()
+	mock.ExpectQuery(regexp.QuoteMeta(claimPendingSQL)).WillReturnRows(sqlmock.NewRows([]string{"event_payload", "attempts"}).AddRow("bad-json", 0))
+	if _, err := NewStore(database).ClaimPending(context.Background(), time.Now(), time.Second, 1); err == nil {
+		t.Fatal("expected payload decode failure")
+	}
+	database.Close()
+}
+
+func TestStorePropagatesOutcomeAndAffectedRowFailures(t *testing.T) {
+	t.Parallel()
+	want := errors.New("update unavailable")
+	database, mock, _ := sqlmock.New()
+	store := NewStore(database)
+	mock.ExpectExec(regexp.QuoteMeta(markPublishedSQL)).WillReturnError(want)
+	if err := store.MarkPublished(context.Background(), "evt", time.Now()); !errors.Is(err, want) {
+		t.Fatalf("publish: %v", err)
+	}
+	mock.ExpectExec(regexp.QuoteMeta(markPublishedSQL)).WillReturnResult(sqlmock.NewResult(0, 0))
+	if err := store.MarkPublished(context.Background(), "missing", time.Now()); err == nil {
+		t.Fatal("expected missing event")
+	}
+	mock.ExpectExec(regexp.QuoteMeta(recordFailureSQL)).WillReturnError(want)
+	if err := store.RecordFailure(context.Background(), app.PublishFailure{EventID: "evt"}); !errors.Is(err, want) {
+		t.Fatalf("failure: %v", err)
+	}
+	mock.ExpectExec(regexp.QuoteMeta(markPublishedSQL)).WillReturnResult(sqlmock.NewErrorResult(want))
+	if err := store.MarkPublished(context.Background(), "evt", time.Now()); !errors.Is(err, want) {
+		t.Fatalf("rows affected: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+	database.Close()
+}
