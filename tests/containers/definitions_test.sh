@@ -32,7 +32,7 @@ for service in postgres dynamodb-local; do
     exit 1
   }
 done
-for service in e2e-ndjson-init e2e-ndjson e2e-postgres-api e2e-postgres-worker e2e-dynamodb-api e2e-dynamodb-worker e2e-secrets; do
+for service in e2e-ndjson-init e2e-secrets-init e2e-ndjson e2e-postgres-api e2e-postgres-worker e2e-dynamodb-api e2e-dynamodb-worker e2e-secrets; do
   grep -Eq "^  ${service}:" compose.yaml || {
     echo "missing end-to-end Compose service: ${service}" >&2
     exit 1
@@ -51,3 +51,19 @@ for profile in e2e-ndjson e2e-postgres e2e-dynamodb; do
 done
 grep -Fq 'condition: service_healthy' compose.yaml || { echo "app must wait for healthy dependencies" >&2; exit 1; }
 grep -Fq 'condition: service_completed_successfully' compose.yaml || { echo "app must wait for topic bootstrap" >&2; exit 1; }
+grep -Fq 'user: "${E2E_SECRET_UID:-65532}:${E2E_SECRET_GID:-65532}"' compose.yaml || {
+  echo "secret-provider E2E service must use the host fixture owner without root" >&2
+  exit 1
+}
+grep -Fq 'export E2E_SECRET_UID="$(id -u)"' tests/e2e/secrets.sh || {
+  echo "secret-provider E2E must export the fixture owner UID" >&2
+  exit 1
+}
+grep -Fq 'export E2E_SECRET_GID="$(id -g)"' tests/e2e/secrets.sh || {
+  echo "secret-provider E2E must export the fixture owner GID" >&2
+  exit 1
+}
+grep -Fq 'command: ["chown", "${E2E_SECRET_UID:-65532}:${E2E_SECRET_GID:-65532}", "/data"]' compose.yaml || {
+  echo "secret-provider E2E volume must be initialized for the fixture owner" >&2
+  exit 1
+}

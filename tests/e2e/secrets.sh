@@ -3,13 +3,15 @@ set -euo pipefail
 source tests/e2e/lib.sh
 
 e2e_setup secrets
+export E2E_SECRET_UID="$(id -u)"
+export E2E_SECRET_GID="$(id -g)"
 secret_file="${E2E_TEMP_DIR}/config.json"
 export LOCAL_SECRET_FILE_HOST="${secret_file}"
 umask 077
 printf '%s' '{"API_KEY":"local-development-only-key","PARTNER_ID":"local-partner","HTTP_ADDRESS":":8080","KAFKA_BROKERS":"kafka:9092","KAFKA_TOPIC":"transaction.review-candidates.v1","STORE_DRIVER":"ndjson","STORE_PATH":"/data/transactions.ndjson"}' >"${secret_file}"
 
 transaction_id="018f47a8-40d1-7e32-b6d6-4f4f8f9c9e27"
-e2e_compose --profile e2e-secrets up --build --detach kafka topic-bootstrap e2e-ndjson-init e2e-secrets
+e2e_compose --profile e2e-secrets up --build --detach kafka topic-bootstrap e2e-secrets-init e2e-secrets
 e2e_wait_for_api 18083
 e2e_request 18083 "${transaction_id}"
 e2e_consume_event "${transaction_id}"

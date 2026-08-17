@@ -103,9 +103,20 @@ services:
 
   e2e-ndjson-init:
     image: alpine:3.22.1
-    profiles: [e2e-ndjson, e2e-secrets]
+    profiles: [e2e-ndjson]
     user: "0:0"
     command: ["chown", "65532:65532", "/data"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ndjson-e2e-data:/data
+
+  e2e-secrets-init:
+    image: alpine:3.22.1
+    profiles: [e2e-secrets]
+    user: "0:0"
+    command: ["chown", "${E2E_SECRET_UID:-65532}:${E2E_SECRET_GID:-65532}", "/data"]
     cap_drop: [ALL]
     cap_add: [CHOWN]
     security_opt: [no-new-privileges:true]
@@ -215,6 +226,7 @@ services:
     build:
       context: .
       target: local
+    user: "${E2E_SECRET_UID:-65532}:${E2E_SECRET_GID:-65532}"
     environment:
       LOCAL_SECRET_FILE: /run/secrets/config.json
     ports:
@@ -223,7 +235,7 @@ services:
       - ${LOCAL_SECRET_FILE_HOST:-./.local/secrets/e2e.json}:/run/secrets/config.json:ro
       - ndjson-e2e-data:/data
     depends_on:
-      e2e-ndjson-init:
+      e2e-secrets-init:
         condition: service_completed_successfully
       kafka:
         condition: service_healthy
