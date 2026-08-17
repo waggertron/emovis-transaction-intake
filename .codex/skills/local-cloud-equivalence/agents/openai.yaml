@@ -1,0 +1,4 @@
+interface:
+  display_name: "Local Cloud Equivalence"
+  short_description: "Validate cloud boundaries with local substitutes"
+  default_prompt: "Use $local-cloud-equivalence to design production-adapter-backed local validation for external services."

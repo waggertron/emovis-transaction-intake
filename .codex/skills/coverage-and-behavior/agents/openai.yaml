@@ -1,0 +1,4 @@
+interface:
+  display_name: "Coverage and Behavior"
+  short_description: "Combine coverage floors with behavior evidence"
+  default_prompt: "Use $coverage-and-behavior to define coverage gates and a critical behavior test matrix."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Secure Component and E2E"
+  short_description: "Test real local boundaries securely"
+  default_prompt: "Use $secure-component-e2e to design secure component and end-to-end tests with complete cleanup."

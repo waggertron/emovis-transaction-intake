@@ -1,0 +1,4 @@
+interface:
+  display_name: "CI Portability"
+  short_description: "Prevent local and hosted CI drift"
+  default_prompt: "Use $ci-portability to make this workflow reproducible across developer machines and hosted Linux CI."

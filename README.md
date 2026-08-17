@@ -189,3 +189,267 @@ Every production behavior follows red-green-refactor: write the focused test, ru
 Repository-specific coding-agent instructions live in [AGENTS.md](AGENTS.md) and `.codex/skills/`. Every authored directory has its own linked `AGENTS.md` describing scope, elements, behavior, and validation.
 
 The [behavior-to-test matrix](docs/testing/behavior-matrix.md) maps critical correctness and failure risks to focused assertions, real local-service components, and end-to-end paths.
+
+## Plain-language onboarding overview
+
+The following explanation is preserved verbatim as a point-in-time onboarding summary. Operational status statements describe the validated handoff recorded in the archived implementation plan; use the current GitHub Actions run for live status.
+
+You built a production-shaped toll transaction intake service.
+
+A roadside system sends the service a toll transaction—something like:
+
+```json
+{
+  "transactionId": "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e27",
+  "occurredAt": "2026-08-17T18:30:00Z",
+  "amountMinor": 725,
+  "currency": "USD",
+  "agencyId": "agency-17",
+  "plazaId": "plaza-4",
+  "laneId": "lane-2",
+  "vehicleClass": "CAR"
+}
+```
+
+`amountMinor: 725` means `$7.25`. Using minor units avoids floating-point money bugs.
+
+## What happens to a request
+
+```text
+Roadside system
+      │
+      ▼
+  HTTP API
+      │ validate + authenticate
+      ▼
+Transaction service
+      │
+      ├── save transaction
+      └── save pending Kafka event
+              │
+              ▼
+       Background worker
+              │
+              ▼
+            Kafka
+```
+
+The API:
+
+1. Checks the API key.
+2. Validates the JSON and business fields.
+3. Saves the transaction.
+4. Creates a pending event for Kafka.
+5. Returns an HTTP response.
+
+The background worker later sends that event to Kafka, where another system could review, rate, reconcile, or process it.
+
+## Why the database and Kafka event are saved together
+
+A classic failure looks like this:
+
+1. Save the transaction.
+2. Try to publish to Kafka.
+3. Kafka is temporarily unavailable.
+4. The transaction exists, but no event was published.
+
+The service prevents that with a transactional outbox.
+
+The transaction and a pending outbox record are saved atomically—either both succeed or neither succeeds. A worker publishes pending records later and retries failures.
+
+Kafka delivery is at-least-once, meaning an event might occasionally arrive more than once. Each event therefore has a stable ID so consumers can deduplicate it.
+
+## Duplicate requests
+
+Roadside systems retry requests because networks are unreliable.
+
+The service handles retries intentionally:
+
+- First valid request: `201 Created`
+- Same ID and same content again: `200 OK` with `Idempotent-Replay: true`
+- Same ID but different content: `409 Conflict`
+
+That prevents both accidental double billing and silent transaction replacement.
+
+## Storage choices
+
+The business logic talks to a `TransactionStore` interface instead of directly depending on one database.
+
+There are four implementations:
+
+- Memory: fast, temporary development mode
+- NDJSON: append-only local file storage
+- PostgreSQL: relational production option
+- DynamoDB: AWS-native production option
+
+A deployment selects one store. The service does not write to PostgreSQL and DynamoDB simultaneously.
+
+Every store follows the same behavioral contract: transaction acceptance, replay, conflicts, outbox creation, event claiming, retries, and completion.
+
+## Local versus AWS architecture
+
+Locally, Docker Compose runs substitutes for the external infrastructure:
+
+- Kafka
+- PostgreSQL
+- DynamoDB Local
+- Local secret provider
+- API and worker processes
+
+In AWS, the intended shape is:
+
+```text
+Internet/partner network
+          │
+          ▼
+       EKS API
+          │
+    PostgreSQL or DynamoDB
+          │
+          ▼
+      EKS worker
+          │
+          ▼
+        Amazon MSK
+```
+
+Terraform defines:
+
+- VPC and private networking
+- EKS
+- Amazon MSK
+- PostgreSQL RDS
+- DynamoDB
+- Secrets Manager
+- IAM and IRSA permissions
+- Logging, alarms, encryption, and flow logs
+
+The Terraform configuration can be validated locally without AWS credentials and does not automatically deploy anything.
+
+## Kafka
+
+Kafka receives `transaction.review-candidates.v1` events.
+
+Events are keyed by:
+
+```text
+partnerId:transactionId
+```
+
+That gives related retries a stable partitioning key.
+
+A topic-bootstrap command creates or configures the topic. The same concept is used in Docker Compose and the EKS deployment.
+
+Both plain local Kafka and a production-shaped secure Kafka mode are tested. The secure mode uses:
+
+- TLS certificate verification
+- SASL/SCRAM authentication
+- No hard-coded production credentials
+
+## Security
+
+The service includes several practical protections:
+
+- API-key authentication
+- Constant-time API-key comparison
+- Request body limits
+- Strict transaction validation
+- Parameterized SQL
+- Non-root containers
+- Read-only secret mounts
+- Private EKS access
+- Least-privilege workload identity
+- Encrypted storage and network logging
+- No secrets in logs or Kafka payloads
+- Dependency vulnerability scanning
+- Git-history secret scanning
+- Infrastructure and container scanning
+
+The final security review found no unresolved release-blocking issues.
+
+## Testing strategy
+
+The repository follows test-driven development:
+
+```text
+Write a test
+    ↓
+Watch it fail
+    ↓
+Write the smallest implementation
+    ↓
+Watch it pass
+    ↓
+Refactor safely
+```
+
+Testing is layered:
+
+- Unit tests: business behavior in isolation
+- Contract tests: all storage adapters obey the same rules
+- Component tests: production adapters against real local services
+- E2E tests: HTTP → storage → worker → Kafka
+- Smoke tests: prove the documented developer workflow works
+- Security tests: vulnerabilities, secrets, containers, and infrastructure
+- Static checks: formatting, vetting, documentation links, and repository structure
+
+Every production Go package has at least 85% statement coverage. The project also tests important behavior explicitly, rather than treating coverage percentage as proof that everything works.
+
+## Repository instructions
+
+Every directory has an `AGENTS.md` explaining:
+
+- What belongs there
+- How its files behave
+- How to validate changes
+- Which parent and child instructions apply
+
+The `.codex/skills` directory adds repository-specific guidance for:
+
+- TDD
+- Architecture decisions
+- Kafka practices
+- Engineering technology choices
+- Recording decisions in the active plan
+- Maintaining the `AGENTS.md` hierarchy
+
+This is the configuration an AI coding agent uses to understand how it should work inside the repository.
+
+## How developers use it
+
+The Makefile is the main interface. Developers do not need to memorize long commands.
+
+Typical commands include:
+
+```bash
+make test
+make coverage
+make test-component
+make test-e2e
+make smoke
+make security
+make validate
+```
+
+Docker Compose runs the complete local system and cleans it up afterward.
+
+## CI and handoff
+
+GitHub Actions independently runs:
+
+- Quality and coverage
+- Infrastructure validation
+- Security scanning
+- Local smoke testing
+- Component testing
+- Every local implementation end to end
+
+All six jobs pass on the final commit.
+
+The repository is private:
+
+https://github.com/waggertron/emovis-transaction-intake
+
+Anyone reviewing it needs explicit GitHub access.
+
+In short: it is a small toll-ingestion API, but it demonstrates the architecture and engineering practices expected of a real service—reliable retries, interchangeable storage, event delivery, local cloud substitutes, secure deployment configuration, comprehensive tests, and clear operating documentation.

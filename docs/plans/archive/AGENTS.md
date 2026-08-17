@@ -20,6 +20,7 @@ Run numbering, Markdown/link, hierarchy, and diff checks.
 | Element | Behavior |
 | --- | --- |
 | `2026-08-16T22-09-15-0700-transaction-intake-plan.md` | Records completed transaction-intake decisions, checklist, and evidence. |
+| `2026-08-17T05-13-47-0700-knowledge-persistence-plan.md` | Records completed reusable-skill, onboarding, retrospective, and instruction-audit work. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

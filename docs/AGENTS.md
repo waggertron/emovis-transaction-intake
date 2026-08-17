@@ -23,7 +23,9 @@ Run Markdown/link and hierarchy checks.
 | `adr` | Records significant architecture choices and rationale. |
 | `info` | Preserves source requirements. |
 | `infrastructure` | Documents cloud topology, local validation, and optional AWS verification. |
+| `onboarding` | Provides reusable repository-initiation and developer-orientation guidance. |
 | `plans` | Tracks current and archived plans. |
+| `retrospective` | Preserves project lessons, rework causes, and future improvements. |
 | `security` | Publishes evidence-based security review findings and remediation. |
 | `testing` | Maps critical behavior to explicit layered test evidence. |
 
@@ -33,6 +35,8 @@ Run Markdown/link and hierarchy checks.
 - Child: [adr/AGENTS.md](adr/AGENTS.md).
 - Child: [info/AGENTS.md](info/AGENTS.md).
 - Child: [infrastructure/AGENTS.md](infrastructure/AGENTS.md).
+- Child: [onboarding/AGENTS.md](onboarding/AGENTS.md).
 - Child: [plans/AGENTS.md](plans/AGENTS.md).
+- Child: [retrospective/AGENTS.md](retrospective/AGENTS.md).
 - Child: [security/AGENTS.md](security/AGENTS.md).
 - Child: [testing/AGENTS.md](testing/AGENTS.md).

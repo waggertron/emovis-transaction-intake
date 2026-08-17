@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bootstrap Production Service"
+  short_description: "Bootstrap production-shaped repositories"
+  default_prompt: "Use $bootstrap-production-service to establish a test-first, locally verifiable production service repository."
