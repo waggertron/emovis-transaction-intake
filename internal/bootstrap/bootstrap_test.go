@@ -29,6 +29,18 @@ func TestLoadConfigUsesSafeDefaultsAndExplicitIdentity(t *testing.T) {
 	if len(config.KafkaBrokers) != 1 || config.KafkaBrokers[0] != "localhost:9092" || config.KafkaTopic != "transaction.review-candidates.v1" || config.KafkaTLS {
 		t.Fatalf("unexpected Kafka defaults: %#v", config)
 	}
+	if config.StoreDriver != "memory" || config.StorePath != ".local/data/transactions.ndjson" {
+		t.Fatalf("unexpected storage defaults: %#v", config)
+	}
+}
+
+func TestLoadConfigRejectsUnknownStoreDriver(t *testing.T) {
+	t.Parallel()
+
+	values := map[string]string{"API_KEY": "key", "PARTNER_ID": "partner", "STORE_DRIVER": "mystery"}
+	if _, err := LoadConfig(func(name string) string { return values[name] }); err == nil {
+		t.Fatal("expected unknown store driver to fail")
+	}
 }
 
 func TestLoadConfigParsesKafkaSecurityWithoutLoggingSecrets(t *testing.T) {

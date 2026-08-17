@@ -20,6 +20,7 @@ Run each child suite through its Make target.
 | Element | Behavior |
 | --- | --- |
 | `commands` | Validates the canonical Make command interface. |
+| `ci` | Validates hosted CI permissions and canonical command usage. |
 | `contracts` | Validates repository-owned external contracts. |
 | `containers` | Validates Docker build targets and complete Compose wiring. |
 | `smoke` | Exercises the complete local transaction-to-Kafka path and cleanup. |
@@ -27,6 +28,7 @@ Run each child suite through its Make target.
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).
 - Child: [commands/AGENTS.md](commands/AGENTS.md).
+- Child: [ci/AGENTS.md](ci/AGENTS.md).
 - Child: [contracts/AGENTS.md](contracts/AGENTS.md).
 - Child: [containers/AGENTS.md](containers/AGENTS.md).
 - Child: [smoke/AGENTS.md](smoke/AGENTS.md).

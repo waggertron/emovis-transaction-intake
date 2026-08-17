@@ -54,7 +54,7 @@ type StoreOutcome struct {
 	EventID string
 }
 
-type TransactionStore interface {
+type IntakeStore interface {
 	Accept(context.Context, Acceptance) (StoreOutcome, error)
 }
 
@@ -70,12 +70,12 @@ type AcceptResult struct {
 }
 
 type IntakeService struct {
-	store TransactionStore
+	store IntakeStore
 	now   func() time.Time
 	newID func() string
 }
 
-func NewIntakeService(store TransactionStore, now func() time.Time, newID func() string) *IntakeService {
+func NewIntakeService(store IntakeStore, now func() time.Time, newID func() string) *IntakeService {
 	return &IntakeService{store: store, now: now, newID: newID}
 }
 

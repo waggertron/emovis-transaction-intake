@@ -23,6 +23,8 @@ type Config struct {
 	KafkaTLS          bool
 	KafkaSASLUsername string
 	KafkaSASLPassword string
+	StoreDriver       string
+	StorePath         string
 }
 
 func LoadConfig(lookup func(string) string) (Config, error) {
@@ -33,6 +35,8 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 		KafkaTopic:        lookup("KAFKA_TOPIC"),
 		KafkaSASLUsername: lookup("KAFKA_SASL_USERNAME"),
 		KafkaSASLPassword: lookup("KAFKA_SASL_PASSWORD"),
+		StoreDriver:       lookup("STORE_DRIVER"),
+		StorePath:         lookup("STORE_PATH"),
 	}
 	if config.Address == "" {
 		config.Address = ":8080"
@@ -58,6 +62,17 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 	if config.KafkaTopic == "" {
 		config.KafkaTopic = "transaction.review-candidates.v1"
 	}
+	if config.StoreDriver == "" {
+		config.StoreDriver = "memory"
+	}
+	switch config.StoreDriver {
+	case "memory", "ndjson", "dynamodb", "postgres":
+	default:
+		return Config{}, fmt.Errorf("STORE_DRIVER must be memory, ndjson, dynamodb, or postgres")
+	}
+	if config.StorePath == "" {
+		config.StorePath = ".local/data/transactions.ndjson"
+	}
 	if rawTLS := lookup("KAFKA_TLS"); rawTLS != "" {
 		value, err := strconv.ParseBool(rawTLS)
 		if err != nil {
@@ -69,8 +84,8 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 }
 
 func (config Config) String() string {
-	return fmt.Sprintf("address=%s partner=%s kafka_brokers=%s kafka_topic=%s kafka_tls=%t kafka_sasl=%t",
-		config.Address, config.PartnerID, strings.Join(config.KafkaBrokers, ","), config.KafkaTopic,
+	return fmt.Sprintf("address=%s partner=%s store_driver=%s kafka_brokers=%s kafka_topic=%s kafka_tls=%t kafka_sasl=%t",
+		config.Address, config.PartnerID, config.StoreDriver, strings.Join(config.KafkaBrokers, ","), config.KafkaTopic,
 		config.KafkaTLS, config.KafkaSASLUsername != "")
 }
 

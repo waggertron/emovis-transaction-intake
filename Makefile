@@ -5,15 +5,24 @@ SHELL := /bin/bash
 COMPOSE_PROJECT_NAME ?= emovis-transaction-intake
 COMPOSE_FILE ?= compose.yaml
 
-.PHONY: help test test-unit lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke validate clean
+.PHONY: help test test-unit test-race test-contract lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke validate clean
 
-help: ## Show the canonical commands: help test test-unit lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke validate clean
+help: ## Show the canonical commands: help test test-unit test-race test-contract lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke validate clean
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "%-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 test: test-unit ## Run all automated Go tests
 
 test-unit: ## Run deterministic unit and contract tests
 	go test ./...
+
+test-race: ## Run all Go tests with the race detector
+	go test -race ./...
+
+test-contract: ## Run command, API, container, and CI contract tests
+	bash tests/commands/makefile_test.sh
+	bash tests/contracts/openapi_test.sh
+	bash tests/containers/definitions_test.sh
+	bash tests/ci/workflow_test.sh
 
 lint: format-check vet ## Run source formatting and static analysis checks
 
@@ -49,8 +58,7 @@ compose-config: ## Validate the complete Compose model without starting containe
 smoke: ## Exercise the documented transaction flow through the local stack
 	bash tests/smoke/local.sh
 
-validate: test lint compose-config ## Run the locally reproducible delivery gates
-	bash tests/commands/makefile_test.sh
+validate: test test-contract lint compose-config ## Run the locally reproducible delivery gates
 	env PYTHONDONTWRITEBYTECODE=1 python3 .codex/skills/agent-instruction-hierarchy/scripts/validate_hierarchy.py --root .
 	git diff --check
 

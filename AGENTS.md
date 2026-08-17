@@ -24,8 +24,10 @@ Run the hierarchy validator, focused tests, and repository validation target.
 | `.codex` | Contains repository-local Codex skills. |
 | `.dockerignore` | Excludes VCS, local build, test, and runtime artifacts from image contexts. |
 | `.gitignore` | Excludes local build, test, and runtime artifacts. |
+| `.github` | Contains least-privilege hosted CI configuration. |
 | `Dockerfile` | Builds reproducible non-root images for each executable mode. |
 | `Makefile` | Provides the canonical strict developer and CI command interface. |
+| `README.md` | Provides onboarding, operation, and extensive architecture documentation. |
 | `api` | Contains the explicitly mocked OpenAPI contract. |
 | `cmd` | Contains executable composition roots. |
 | `compose.yaml` | Runs the complete local Kafka and transaction-intake system. |
@@ -38,6 +40,7 @@ Run the hierarchy validator, focused tests, and repository validation target.
 ## Instruction hierarchy
 - Parent: none.
 - Child: [.codex/AGENTS.md](.codex/AGENTS.md).
+- Child: [.github/AGENTS.md](.github/AGENTS.md).
 - Child: [api/AGENTS.md](api/AGENTS.md).
 - Child: [cmd/AGENTS.md](cmd/AGENTS.md).
 - Child: [docs/AGENTS.md](docs/AGENTS.md).

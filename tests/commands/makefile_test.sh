@@ -2,7 +2,7 @@
 set -euo pipefail
 
 required_targets=(
-  help test test-unit lint format-check vet build
+  help test test-unit test-race test-contract lint format-check vet build
   run-api run-worker run-local compose-up compose-down
   compose-config smoke validate clean
 )

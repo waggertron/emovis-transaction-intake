@@ -25,6 +25,9 @@ func run(ctx context.Context, arguments []string, lookup func(string) string, st
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+	if config.StoreDriver == "ndjson" && mode != bootstrap.ModeLocal {
+		return fmt.Errorf("NDJSON storage is supported only in combined local mode")
+	}
 	start, found := starters[mode]
 	if !found {
 		return fmt.Errorf("mode %q has no starter", mode)

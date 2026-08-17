@@ -66,3 +66,25 @@ func TestRunDoesNotStartWithInvalidConfig(t *testing.T) {
 		t.Fatal("starter called with invalid config")
 	}
 }
+
+func TestRunRejectsNDJSONForSeparateProcesses(t *testing.T) {
+	t.Parallel()
+
+	lookup := func(name string) string {
+		values := map[string]string{"API_KEY": "key", "PARTNER_ID": "partner", "STORE_DRIVER": "ndjson"}
+		return values[name]
+	}
+	for _, mode := range []string{"api", "worker"} {
+		called := false
+		starters := map[bootstrap.Mode]starter{bootstrap.Mode(mode): func(context.Context, bootstrap.Config) error {
+			called = true
+			return nil
+		}}
+		if err := run(context.Background(), []string{mode}, lookup, starters); err == nil {
+			t.Fatalf("expected %s NDJSON mode to fail", mode)
+		}
+		if called {
+			t.Fatalf("%s starter called with unsafe NDJSON config", mode)
+		}
+	}
+}

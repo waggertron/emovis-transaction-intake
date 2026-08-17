@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/waggertron/emovis-transaction-intake/internal/bootstrap"
 	httpadapter "github.com/waggertron/emovis-transaction-intake/internal/transaction/adapters/http"
 	kafkaadapter "github.com/waggertron/emovis-transaction-intake/internal/transaction/adapters/kafka"
 	"github.com/waggertron/emovis-transaction-intake/internal/transaction/adapters/memory"
+	"github.com/waggertron/emovis-transaction-intake/internal/transaction/adapters/ndjson"
 	"github.com/waggertron/emovis-transaction-intake/internal/transaction/app"
 )
 
@@ -25,12 +28,18 @@ func productionStarters() map[bootstrap.Mode]starter {
 }
 
 func startAPI(ctx context.Context, config bootstrap.Config) error {
-	store := memory.NewStore()
+	store, err := newStore(bootstrap.ModeAPI, config)
+	if err != nil {
+		return err
+	}
 	return serveAPI(ctx, config, store)
 }
 
 func startWorker(ctx context.Context, config bootstrap.Config) error {
-	store := memory.NewStore()
+	store, err := newStore(bootstrap.ModeWorker, config)
+	if err != nil {
+		return err
+	}
 	writer, dispatcher, err := newDispatcher(config, store)
 	if err != nil {
 		return err
@@ -40,7 +49,10 @@ func startWorker(ctx context.Context, config bootstrap.Config) error {
 }
 
 func startLocal(ctx context.Context, config bootstrap.Config) error {
-	store := memory.NewStore()
+	store, err := newStore(bootstrap.ModeLocal, config)
+	if err != nil {
+		return err
+	}
 	writer, dispatcher, err := newDispatcher(config, store)
 	if err != nil {
 		return err
@@ -67,7 +79,7 @@ func startLocal(ctx context.Context, config bootstrap.Config) error {
 	}
 }
 
-func serveAPI(ctx context.Context, config bootstrap.Config, store *memory.Store) error {
+func serveAPI(ctx context.Context, config bootstrap.Config, store app.IntakeStore) error {
 	intake := app.NewIntakeService(store, time.Now, rand.Text)
 	auth := httpadapter.NewStaticAPIKeys(map[string]string{config.PartnerID: config.APIKey})
 	handler := httpadapter.NewHandler(intake, auth, rand.Text, func() bool { return true })
@@ -92,7 +104,7 @@ func serveAPI(ctx context.Context, config bootstrap.Config, store *memory.Store)
 	return fmt.Errorf("serve HTTP: %w", err)
 }
 
-func newDispatcher(config bootstrap.Config, store *memory.Store) (interface{ Close() error }, *app.Dispatcher, error) {
+func newDispatcher(config bootstrap.Config, store app.OutboxStore) (interface{ Close() error }, *app.Dispatcher, error) {
 	writer, err := kafkaadapter.NewWriter(kafkaadapter.WriterConfig{
 		Brokers: config.KafkaBrokers, Topic: config.KafkaTopic, TLS: config.KafkaTLS,
 		SASLUsername: config.KafkaSASLUsername, SASLPassword: config.KafkaSASLPassword,
@@ -102,6 +114,28 @@ func newDispatcher(config bootstrap.Config, store *memory.Store) (interface{ Clo
 	}
 	publisher := kafkaadapter.NewPublisher(writer, config.KafkaTopic)
 	return writer, app.NewDispatcher(store, publisher, time.Now, app.DefaultDispatcherConfig()), nil
+}
+
+func newStore(mode bootstrap.Mode, config bootstrap.Config) (app.TransactionStore, error) {
+	switch config.StoreDriver {
+	case "", "memory":
+		return memory.NewStore(), nil
+	case "ndjson":
+		if mode != bootstrap.ModeLocal {
+			return nil, fmt.Errorf("NDJSON storage is supported only in combined local mode")
+		}
+		directory := filepath.Dir(config.StorePath)
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return nil, fmt.Errorf("create NDJSON store directory: %w", err)
+		}
+		store, err := ndjson.NewStore(config.StorePath)
+		if err != nil {
+			return nil, err
+		}
+		return store, nil
+	default:
+		return nil, fmt.Errorf("store driver %q is not wired", config.StoreDriver)
+	}
 }
 
 func runWorkerLoop(ctx context.Context, dispatcher *app.Dispatcher) error {

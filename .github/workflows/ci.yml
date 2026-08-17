@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Unit and contract tests
+        run: make test
+      - name: Race tests
+        run: make test-race
+      - name: Static analysis
+        run: make lint
+      - name: Build commands
+        run: make build
+      - name: Compose model
+        run: make compose-config
+      - name: Repository validation
+        run: make validate
+
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Complete local transaction flow
+        run: make smoke

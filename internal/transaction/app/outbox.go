@@ -25,6 +25,11 @@ type OutboxStore interface {
 	RecordFailure(context.Context, PublishFailure) error
 }
 
+type TransactionStore interface {
+	IntakeStore
+	OutboxStore
+}
+
 type Publisher interface {
 	Publish(context.Context, OutboxEvent) error
 }

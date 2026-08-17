@@ -20,11 +20,13 @@ Run Markdown/link and hierarchy checks.
 | Element | Behavior |
 | --- | --- |
 | `architecture` | Explains stable structure and topology. |
+| `adr` | Records significant architecture choices and rationale. |
 | `info` | Preserves source requirements. |
 | `plans` | Tracks current and archived plans. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).
 - Child: [architecture/AGENTS.md](architecture/AGENTS.md).
+- Child: [adr/AGENTS.md](adr/AGENTS.md).
 - Child: [info/AGENTS.md](info/AGENTS.md).
 - Child: [plans/AGENTS.md](plans/AGENTS.md).
