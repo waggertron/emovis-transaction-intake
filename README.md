@@ -180,7 +180,7 @@ No cloud account or credentials are required for repository completion. Terrafor
 - Multi-region disaster recovery, schema registry adoption, partition growth, data retention/deletion policy, PII classification, and a terminal-event remediation workflow require product and platform decisions.
 - Real AWS application and destructive infrastructure operations are outside automated repository validation.
 
-See [portable storage/outbox ADR](docs/adr/2026-08-16-portable-storage-and-outbox.md), [Kafka/MSK ADR](docs/adr/2026-08-16-kafka-msk-delivery.md), and the [active implementation plan](docs/plans/current/2026-08-16T22-09-15-0700-transaction-intake-plan.md).
+See [portable storage/outbox ADR](docs/adr/2026-08-16-portable-storage-and-outbox.md), [Kafka/MSK ADR](docs/adr/2026-08-16-kafka-msk-delivery.md), and the [archived implementation plan](docs/plans/archive/2026-08-16T22-09-15-0700-transaction-intake-plan.md).
 
 ## Testing approach
 

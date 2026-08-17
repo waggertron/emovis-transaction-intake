@@ -19,7 +19,6 @@ Run numbering, Markdown/link, and diff checks.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `2026-08-16T22-09-15-0700-transaction-intake-plan.md` | Defines current decisions and work. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

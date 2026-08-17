@@ -19,8 +19,9 @@ Check numbering, links, and decision consistency.
 ## Elements
 | Element | Behavior |
 | --- | --- |
+| `archive` | Contains completed timestamped plans and their retained evidence. |
 | `current` | Contains the active timestamped plan. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).
-- Child: [current/AGENTS.md](current/AGENTS.md).
+- Children: [archive/AGENTS.md](archive/AGENTS.md), [current/AGENTS.md](current/AGENTS.md).
