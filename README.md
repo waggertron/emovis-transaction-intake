@@ -109,6 +109,18 @@ See the [storage-selection ADR](docs/adr/2026-08-17-explicit-storage-infrastruct
 
 ### Request and delivery flow
 
+```mermaid
+flowchart LR
+    Producer[Roadside or partner producer] -->|POST /ingest/v1/transactions| HTTP[HTTP adapter]
+    HTTP -->|validate and fingerprint| Intake[Intake application]
+    Intake -->|atomic acceptance| Store[(Selected transaction store)]
+    Store -->|transaction + pending outbox event| Outbox[Outbox]
+    Worker[Outbox worker] -->|lease pending event| Outbox
+    Worker -->|publish stable event ID| Kafka[(Kafka review-candidate topic)]
+    Kafka --> Resolver[Downstream resolution pipeline]
+    Store -->|replay lookup by source + source_reference| Intake
+```
+
 ```text
 partner / roadside system
           │ POST /ingest/v1/transactions

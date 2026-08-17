@@ -29,7 +29,7 @@ Read this directory before adding a service boundary, storage adapter, Kafka wor
 
 | Element | Behavior |
 | --- | --- |
-| _No architecture documents yet_ | Future architecture documents explain one stable system boundary or topology. |
+| `2026-08-17-transaction-ingest-system.md` | Current end-to-end description of the supplied ingest contract, boundaries, outbox, runtime modes, local confirmation paths, cloud shape, and operations. |
 
 ## Instruction hierarchy
 
