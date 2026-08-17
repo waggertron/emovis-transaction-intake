@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kafka Best Practices"
+  short_description: "Design reliable, secure Kafka systems"
+  default_prompt: "Use $kafka-best-practices to design or review this Kafka change."

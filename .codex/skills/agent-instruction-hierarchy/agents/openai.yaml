@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Instruction Hierarchy"
+  short_description: "Maintain linked AGENTS.md files"
+  default_prompt: "Use $agent-instruction-hierarchy to validate repository AGENTS.md coverage and hierarchy."

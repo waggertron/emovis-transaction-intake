@@ -1,0 +1,4 @@
+interface:
+  display_name: "TDD Development"
+  short_description: "Enforce test-first development"
+  default_prompt: "Use $tdd-development to plan and implement this change test-first."
