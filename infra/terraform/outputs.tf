@@ -6,15 +6,15 @@ output "msk_bootstrap_brokers_sasl_scram" {
   sensitive = true
 }
 output "dynamodb_table_name" {
-  value = aws_dynamodb_table.transactions.name
+  value = try(module.dynamodb[0].table_name, null)
 }
 output "postgres_endpoint" {
-  value     = aws_db_instance.postgres.endpoint
+  value     = try(module.postgres[0].endpoint, null)
   sensitive = true
 }
 output "workload_role_arn" {
   value = aws_iam_role.workload.arn
 }
 output "runtime_secret_arns" {
-  value = [aws_secretsmanager_secret.api.arn, aws_secretsmanager_secret.postgres.arn, aws_secretsmanager_secret.kafka.arn]
+  value = concat([module.shared.api_secret_arn, module.shared.kafka_secret_arn], module.postgres[*].secret_arn)
 }

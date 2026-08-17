@@ -72,6 +72,10 @@ paths:
           $ref: '#/components/responses/Unprocessable'
         '503':
           $ref: '#/components/responses/Unavailable'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
   /healthz:
     get:
       operationId: health
@@ -82,6 +86,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '405':
+          description: Method not allowed
   /readyz:
     get:
       operationId: readiness
@@ -98,6 +104,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '405':
+          description: Method not allowed
   /metrics:
     get:
       operationId: metrics
@@ -108,6 +116,8 @@ paths:
             text/plain:
               schema:
                 type: string
+        '405':
+          description: Method not allowed
 components:
   securitySchemes:
     apiKey:
@@ -200,4 +210,10 @@ components:
       content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
     Unavailable:
       description: A required service dependency is unavailable
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    MethodNotAllowed:
+      description: The resource does not support the requested method
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    UnsupportedMediaType:
+      description: The transaction body is not application/json
       content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}

@@ -1,5 +1,7 @@
 # Final security review — 2026-08-17
 
+> Superseded release assessment: the later [adversarial follow-up](2026-08-17-adversarial-follow-up.md) reopened this pass after finding cross-process correctness and deployment issues that the original review did not detect.
+
 ## Result
 
 Release assessment: **pass after remediation**. No unresolved Critical, High, or Medium finding remains in the locally reviewable product, container, or reference infrastructure. Real AWS ingress, organization policy, runtime secret population, and destructive lifecycle controls still require an authorized platform review before deployment; this repository does not apply cloud resources.
@@ -16,7 +18,7 @@ Canonical evidence:
 - `make security-config`: pass for High/Critical source, dependency, secret, Dockerfile, Kubernetes, and Terraform findings.
 - `make security-image`: pass; Trivy 0.59.1 reports 0 High and 0 Critical findings in the distroless production image.
 - A separate Medium+ IaC scan reports no remaining finding after remediation.
-- `make terraform-validate`, `make terraform-plan`, `make k8s-validate`, and `make test-infrastructure`: pass without credentials, backend, cluster, or apply. The plan contains 61 creates, 0 changes, and 0 destroys.
+- `make terraform-validate`, both explicitly selected `make terraform-plan TFVARS=...` commands, `make k8s-validate`, and `make test-infrastructure`: pass without credentials, state backend, cluster, or apply. DynamoDB plans 57 creates and PostgreSQL plans 59; neither plan contains the unselected database.
 
 Trivy 0.59.1's downloadable-policy update emitted a Rego compatibility error for one unrelated EC2 AMI-owner rule. The repeatable gate therefore uses that version's embedded checks (`--skip-check-update`) and supplements them with repository policy assertions. This limitation is not represented as scanner coverage.
 
@@ -52,7 +54,7 @@ Trivy 0.59.1's downloadable-policy update emitted a Rego compatibility error for
 ### SEC-004 — Destructive RDS default
 
 - Severity/status: **Medium — resolved; local-plan exception is non-applying**.
-- Location: `infra/terraform/variables.tf` (`deletion_protection`), `infra/terraform/terraform.tfvars.example`.
+- Location: `infra/terraform/variables.tf` (`deletion_protection`), `infra/terraform/dynamodb.tfvars.example`, and `infra/terraform/postgres.tfvars.example`.
 - Evidence: AVD-AWS-0177 reported the earlier default-off deletion protection.
 - Impact: an applied environment could permit accidental database deletion without a final snapshot.
 - Fix: default deletion protection on; this also makes final snapshots mandatory. The credential-free disposable example explicitly sets it off only to demonstrate both conditional paths in a plan that cannot apply and is documented as unsuitable for deployment.

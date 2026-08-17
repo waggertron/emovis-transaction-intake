@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"sort"
 	"sync"
@@ -20,6 +21,7 @@ type storedEvent struct {
 	attempts   int
 	retryAt    time.Time
 	leaseUntil time.Time
+	claimToken string
 	published  bool
 	terminal   bool
 }
@@ -36,6 +38,8 @@ func NewStore() *Store {
 		events:       make(map[string]*storedEvent),
 	}
 }
+
+func (store *Store) Ready(ctx context.Context) error { return ctx.Err() }
 
 func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.StoreOutcome, error) {
 	if err := ctx.Err(); err != nil {
@@ -83,7 +87,8 @@ func (store *Store) ClaimPending(ctx context.Context, now time.Time, lease time.
 			continue
 		}
 		record.leaseUntil = now.Add(lease)
-		claimed = append(claimed, app.PendingEvent{Event: record.event, Attempts: record.attempts})
+		record.claimToken = rand.Text()
+		claimed = append(claimed, app.PendingEvent{Event: record.event, Attempts: record.attempts, ClaimToken: record.claimToken})
 		if len(claimed) == limit {
 			break
 		}
@@ -91,7 +96,7 @@ func (store *Store) ClaimPending(ctx context.Context, now time.Time, lease time.
 	return claimed, nil
 }
 
-func (store *Store) MarkPublished(ctx context.Context, eventID string, _ time.Time) error {
+func (store *Store) MarkPublished(ctx context.Context, eventID, claimToken string, _ time.Time) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -101,8 +106,12 @@ func (store *Store) MarkPublished(ctx context.Context, eventID string, _ time.Ti
 	if !found {
 		return fmt.Errorf("outbox event %q not found", eventID)
 	}
+	if record.claimToken == "" || record.claimToken != claimToken {
+		return app.ErrLeaseLost
+	}
 	record.published = true
 	record.leaseUntil = time.Time{}
+	record.claimToken = ""
 	return nil
 }
 
@@ -116,9 +125,13 @@ func (store *Store) RecordFailure(ctx context.Context, failure app.PublishFailur
 	if !found {
 		return fmt.Errorf("outbox event %q not found", failure.EventID)
 	}
+	if record.claimToken == "" || record.claimToken != failure.ClaimToken {
+		return app.ErrLeaseLost
+	}
 	record.attempts = failure.Attempts
 	record.retryAt = failure.RetryAt
 	record.terminal = failure.Terminal
 	record.leaseUntil = time.Time{}
+	record.claimToken = ""
 	return nil
 }

@@ -75,13 +75,13 @@ func TestStoreReportsCancellationMissingEventsAndAppendFailure(t *testing.T) {
 	if _, err := store.ClaimPending(ctx, time.Now(), time.Second, 1); err == nil {
 		t.Fatal("expected cancelled claim")
 	}
-	if err := store.MarkPublished(ctx, "missing", time.Now()); err == nil {
+	if err := store.MarkPublished(ctx, "missing", "claim", time.Now()); err == nil {
 		t.Fatal("expected cancelled publication")
 	}
 	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: "missing"}); err == nil {
 		t.Fatal("expected cancelled failure")
 	}
-	if err := store.MarkPublished(context.Background(), "missing", time.Now()); err == nil {
+	if err := store.MarkPublished(context.Background(), "missing", "claim", time.Now()); err == nil {
 		t.Fatal("expected missing publication")
 	}
 	if err := store.RecordFailure(context.Background(), app.PublishFailure{EventID: "missing"}); err == nil {
@@ -142,7 +142,11 @@ func TestStorePersistsRetryAndPublishedStateAcrossRestart(t *testing.T) {
 		t.Fatalf("accept: %v", err)
 	}
 	retryAt := time.Date(2026, 8, 16, 23, 0, 0, 0, time.UTC)
-	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: "evt-1", Attempts: 1, RetryAt: retryAt, Reason: "publish_failed"}); err != nil {
+	initial, err := store.ClaimPending(ctx, retryAt.Add(-time.Minute), 30*time.Second, 1)
+	if err != nil || len(initial) != 1 {
+		t.Fatalf("claim initial: %#v, %v", initial, err)
+	}
+	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: "evt-1", ClaimToken: initial[0].ClaimToken, Attempts: 1, RetryAt: retryAt, Reason: "publish_failed"}); err != nil {
 		t.Fatalf("record retry: %v", err)
 	}
 
@@ -154,7 +158,7 @@ func TestStorePersistsRetryAndPublishedStateAcrossRestart(t *testing.T) {
 	if err != nil || len(claimed) != 1 || claimed[0].Attempts != 1 {
 		t.Fatalf("claim retry: %#v, %v", claimed, err)
 	}
-	if err := reopened.MarkPublished(ctx, "evt-1", retryAt); err != nil {
+	if err := reopened.MarkPublished(ctx, "evt-1", claimed[0].ClaimToken, retryAt); err != nil {
 		t.Fatalf("mark published: %v", err)
 	}
 

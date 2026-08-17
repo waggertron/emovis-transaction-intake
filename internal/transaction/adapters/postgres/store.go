@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -13,11 +14,12 @@ import (
 
 const (
 	selectIdentitySQL    = `SELECT fingerprint, event_id FROM transactions WHERE partner_id = $1 AND transaction_id = $2 FOR UPDATE`
+	readIdentitySQL      = `SELECT fingerprint, event_id FROM transactions WHERE partner_id = $1 AND transaction_id = $2`
 	insertTransactionSQL = `INSERT INTO transactions (partner_id, transaction_id, fingerprint, payload, event_id) VALUES ($1, $2, $3, $4, $5)`
 	insertOutboxSQL      = `INSERT INTO outbox_events (event_id, event_payload, occurred_at, status, attempts) VALUES ($1, $2, $3, 'pending', 0)`
-	claimPendingSQL      = `WITH candidates AS (SELECT event_id FROM outbox_events WHERE status = 'pending' AND (retry_at IS NULL OR retry_at <= $1) AND (lease_until IS NULL OR lease_until <= $1) ORDER BY occurred_at FOR UPDATE SKIP LOCKED LIMIT $2) UPDATE outbox_events AS event SET lease_until = $3 FROM candidates WHERE event.event_id = candidates.event_id RETURNING event.event_payload, event.attempts`
-	markPublishedSQL     = `UPDATE outbox_events SET status = 'published', published_at = $1, lease_until = NULL WHERE event_id = $2`
-	recordFailureSQL     = `UPDATE outbox_events SET status = $1, attempts = $2, retry_at = $3, last_error = $4, lease_until = NULL WHERE event_id = $5`
+	claimPendingSQL      = `WITH candidates AS (SELECT event_id FROM outbox_events WHERE status = 'pending' AND (retry_at IS NULL OR retry_at <= $1) AND (lease_until IS NULL OR lease_until <= $1) ORDER BY occurred_at FOR UPDATE SKIP LOCKED LIMIT $2) UPDATE outbox_events AS event SET lease_until = $3, claim_token = $4 FROM candidates WHERE event.event_id = candidates.event_id RETURNING event.event_payload, event.attempts, event.claim_token`
+	markPublishedSQL     = `UPDATE outbox_events SET status = 'published', published_at = $1, lease_until = NULL, claim_token = NULL WHERE event_id = $2 AND status = 'pending' AND claim_token = $3`
+	recordFailureSQL     = `UPDATE outbox_events SET status = $1, attempts = $2, retry_at = $3, last_error = $4, lease_until = NULL, claim_token = NULL WHERE event_id = $5 AND status = 'pending' AND claim_token = $6`
 )
 
 type Store struct {
@@ -26,6 +28,13 @@ type Store struct {
 
 func NewStore(database *sql.DB) *Store {
 	return &Store{database: database}
+}
+
+func (store *Store) Ready(ctx context.Context) error {
+	if err := store.database.PingContext(ctx); err != nil {
+		return fmt.Errorf("check PostgreSQL readiness: %w", err)
+	}
+	return nil
 }
 
 func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (outcome app.StoreOutcome, err error) {
@@ -68,19 +77,51 @@ func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (outc
 		acceptance.Transaction.PartnerID, acceptance.Transaction.ID, acceptance.Fingerprint,
 		transactionPayload, acceptance.Event.ID,
 	); err != nil {
+		if isConcurrencyConflict(err) {
+			_ = tx.Rollback()
+			return store.classifyExisting(ctx, acceptance, err)
+		}
 		return app.StoreOutcome{}, fmt.Errorf("insert transaction: %w", err)
 	}
 	if _, err = tx.ExecContext(ctx, insertOutboxSQL, acceptance.Event.ID, eventPayload, acceptance.Event.OccurredAt); err != nil {
 		return app.StoreOutcome{}, fmt.Errorf("insert outbox event: %w", err)
 	}
 	if err = tx.Commit(); err != nil {
+		if isConcurrencyConflict(err) {
+			return store.classifyExisting(ctx, acceptance, err)
+		}
 		return app.StoreOutcome{}, fmt.Errorf("commit transaction acceptance: %w", err)
 	}
 	return app.StoreOutcome{Kind: app.StoreAccepted, EventID: acceptance.Event.ID}, nil
 }
 
+type sqlStateError interface {
+	SQLState() string
+}
+
+func isConcurrencyConflict(err error) bool {
+	var state sqlStateError
+	if !errors.As(err, &state) {
+		return false
+	}
+	return state.SQLState() == "23505" || state.SQLState() == "40001"
+}
+
+func (store *Store) classifyExisting(ctx context.Context, acceptance app.Acceptance, cause error) (app.StoreOutcome, error) {
+	var fingerprint, eventID string
+	err := store.database.QueryRowContext(ctx, readIdentitySQL, acceptance.Transaction.PartnerID, acceptance.Transaction.ID).Scan(&fingerprint, &eventID)
+	if err != nil {
+		return app.StoreOutcome{}, fmt.Errorf("classify concurrent transaction after %v: %w", cause, err)
+	}
+	if fingerprint == acceptance.Fingerprint {
+		return app.StoreOutcome{Kind: app.StoreReplay, EventID: eventID}, nil
+	}
+	return app.StoreOutcome{Kind: app.StoreConflict}, nil
+}
+
 func (store *Store) ClaimPending(ctx context.Context, now time.Time, lease time.Duration, limit int) ([]app.PendingEvent, error) {
-	rows, err := store.database.QueryContext(ctx, claimPendingSQL, now, limit, now.Add(lease))
+	claimToken := rand.Text()
+	rows, err := store.database.QueryContext(ctx, claimPendingSQL, now, limit, now.Add(lease), claimToken)
 	if err != nil {
 		return nil, fmt.Errorf("claim pending outbox events: %w", err)
 	}
@@ -89,7 +130,7 @@ func (store *Store) ClaimPending(ctx context.Context, now time.Time, lease time.
 	for rows.Next() {
 		var payload []byte
 		var pending app.PendingEvent
-		if err := rows.Scan(&payload, &pending.Attempts); err != nil {
+		if err := rows.Scan(&payload, &pending.Attempts, &pending.ClaimToken); err != nil {
 			return nil, fmt.Errorf("scan claimed outbox event: %w", err)
 		}
 		if err := json.Unmarshal(payload, &pending.Event); err != nil {
@@ -103,12 +144,12 @@ func (store *Store) ClaimPending(ctx context.Context, now time.Time, lease time.
 	return events, nil
 }
 
-func (store *Store) MarkPublished(ctx context.Context, eventID string, at time.Time) error {
-	result, err := store.database.ExecContext(ctx, markPublishedSQL, at, eventID)
+func (store *Store) MarkPublished(ctx context.Context, eventID, claimToken string, at time.Time) error {
+	result, err := store.database.ExecContext(ctx, markPublishedSQL, at, eventID, claimToken)
 	if err != nil {
 		return fmt.Errorf("mark outbox event published: %w", err)
 	}
-	return requireUpdated(result, eventID)
+	return requireClaimUpdated(result, eventID)
 }
 
 func (store *Store) RecordFailure(ctx context.Context, failure app.PublishFailure) error {
@@ -116,20 +157,20 @@ func (store *Store) RecordFailure(ctx context.Context, failure app.PublishFailur
 	if failure.Terminal {
 		status = "failed"
 	}
-	result, err := store.database.ExecContext(ctx, recordFailureSQL, status, failure.Attempts, failure.RetryAt, failure.Reason, failure.EventID)
+	result, err := store.database.ExecContext(ctx, recordFailureSQL, status, failure.Attempts, failure.RetryAt, failure.Reason, failure.EventID, failure.ClaimToken)
 	if err != nil {
 		return fmt.Errorf("record outbox event failure: %w", err)
 	}
-	return requireUpdated(result, failure.EventID)
+	return requireClaimUpdated(result, failure.EventID)
 }
 
-func requireUpdated(result sql.Result, eventID string) error {
+func requireClaimUpdated(result sql.Result, eventID string) error {
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("read outbox update result: %w", err)
 	}
 	if rows != 1 {
-		return fmt.Errorf("outbox event %q not found", eventID)
+		return fmt.Errorf("outbox event %q: %w", eventID, app.ErrLeaseLost)
 	}
 	return nil
 }

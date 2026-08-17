@@ -10,6 +10,7 @@ Applies to the DynamoDB adapter package.
 - Use strongly consistent identity reads and conditional transactional writes.
 - Keep partner/transaction identity and outbox records in one table contract.
 - Classify conditional races as replay or conflict after rereading identity.
+- Paginate filtered dispatch candidates and condition completion on the current claim token.
 
 ## Usage
 Select through `STORE_DRIVER=dynamodb` with IAM-provided access.
@@ -20,8 +21,8 @@ Run AWS-client fake tests and the shared contract against DynamoDB Local.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `store.go` | Implements consistent identity reads and conditional transaction/outbox writes. |
-| `store_test.go` | Specifies consistent lookup, transactional writes, replay, and conflict. |
+| `store.go` | Implements consistent identity/readiness checks, conditional race classification, paginated dispatch, and fenced outcomes. |
+| `store_test.go` | Specifies consistent lookup, transactional races, pagination, fencing, replay, and conflict. |
 | `table.go` | Idempotently bootstraps the single-table keys and pending-outbox GSI. |
 | `table_test.go` | Specifies table creation, idempotency, readiness waiting, and failure classification. |
 

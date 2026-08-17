@@ -2,7 +2,7 @@
 
 ## Outcome
 
-The repository produced a production-shaped Go transaction-intake service with a mocked OpenAPI contract, interchangeable stores, transactional outbox, Kafka delivery, local cloud substitutes, AWS-oriented infrastructure, layered tests, security evidence, and a private GitHub handoff. The archived plan retains the complete decision and checklist history.
+The repository produced a production-shaped Go transaction-intake service with a mocked OpenAPI contract, interchangeable stores, transactional outbox, Kafka delivery, local cloud substitutes, AWS-oriented infrastructure, layered tests, and security evidence. The archived plan retains the complete decision and checklist history.
 
 ## What worked well
 
@@ -26,7 +26,6 @@ The repository produced a production-shaped Go transaction-intake service with a
 - Missing source contract → explicitly mocked OpenAPI contract.
 - SNS/SQS → Kafka locally and Amazon MSK in AWS.
 - General test completeness → strict TDD, per-package 85% coverage, production-adapter component tests, and all-implementation E2E tests.
-- Public repository handoff → private repository with explicit reviewer access.
 - Completed active plan → archived plan, requiring a new current plan before later material changes.
 
 ## Native-Linux CI lessons

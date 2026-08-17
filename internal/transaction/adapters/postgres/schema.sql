@@ -16,11 +16,14 @@ CREATE TABLE IF NOT EXISTS outbox_events (
     status TEXT NOT NULL CHECK (status IN ('pending', 'published', 'failed')),
     attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
     retry_at TIMESTAMPTZ,
-    lease_until TIMESTAMPTZ,
+	lease_until TIMESTAMPTZ,
+	claim_token TEXT,
     published_at TIMESTAMPTZ,
     last_error TEXT,
     CONSTRAINT outbox_transaction_event_fk FOREIGN KEY (event_id) REFERENCES transactions(event_id)
 );
+
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS claim_token TEXT;
 
 CREATE INDEX IF NOT EXISTS outbox_dispatch_idx
     ON outbox_events (status, retry_at, lease_until, occurred_at)

@@ -13,6 +13,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.40.5
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/segmentio/kafka-go v0.4.51
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

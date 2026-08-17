@@ -19,7 +19,7 @@ Run `bash tests/commands/makefile_test.sh`.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `makefile_test.sh` | Verifies required strict targets and help output. |
+| `makefile_test.sh` | Verifies required strict targets, help output, runnable local defaults, and complete environment templates. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,6 +26,14 @@ func TestLoadTopicSettingsUsesPlannedDefaults(t *testing.T) {
 	}
 	if settings.Broker != "kafka:9092" || settings.Topic.Name != "transaction.review-candidates.v1" || settings.Topic.Partitions != 3 || settings.Topic.ReplicationFactor != 1 || settings.Topic.Retention != 7*24*time.Hour {
 		t.Fatalf("unexpected defaults: %#v", settings)
+	}
+}
+
+func TestPositiveIntegerParsesExplicitValue(t *testing.T) {
+	t.Parallel()
+	value, err := positiveInteger("4", 1)
+	if err != nil || value != 4 {
+		t.Fatalf("explicit positive integer: %d, %v", value, err)
 	}
 }
 
@@ -55,6 +64,47 @@ func TestRunProductionCLIRejectsInvalidAndUntrustedConfiguration(t *testing.T) {
 	}
 	if err := runProductionCLI(func(name string) string { return values[name] }); err == nil {
 		t.Fatal("expected untrusted configuration rejection")
+	}
+}
+
+func TestTopicConfigurationLookupLoadsLocalSecretProvider(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "topic.json")
+	if err := os.WriteFile(path, []byte(`{"KAFKA_BROKERS":"secret-broker:9092","KAFKA_SASL_USERNAME":"user","KAFKA_SASL_PASSWORD":"password"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lookup, err := topicConfigurationLookup(context.Background(), func(name string) string {
+		if name == "LOCAL_SECRET_FILE" {
+			return path
+		}
+		return ""
+	})
+	if err != nil || lookup("KAFKA_BROKERS") != "secret-broker:9092" {
+		t.Fatalf("secret lookup: %v", err)
+	}
+}
+
+func TestTopicConfigurationLookupRejectsAmbiguousAndMalformedProviders(t *testing.T) {
+	t.Parallel()
+	if _, err := topicConfigurationLookup(context.Background(), func(name string) string {
+		if name == "LOCAL_SECRET_FILE" || name == "AWS_SECRET_ID" {
+			return "configured"
+		}
+		return ""
+	}); err == nil {
+		t.Fatal("expected ambiguous provider rejection")
+	}
+	path := filepath.Join(t.TempDir(), "malformed.json")
+	if err := os.WriteFile(path, []byte("not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := topicConfigurationLookup(context.Background(), func(name string) string {
+		if name == "LOCAL_SECRET_FILE" {
+			return path
+		}
+		return ""
+	}); err == nil {
+		t.Fatal("expected malformed provider rejection")
 	}
 }
 

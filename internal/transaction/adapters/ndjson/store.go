@@ -3,6 +3,7 @@ package ndjson
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ type storedEvent struct {
 	attempts   int
 	retryAt    time.Time
 	leaseUntil time.Time
+	claimToken string
 	published  bool
 	terminal   bool
 }
@@ -75,6 +77,8 @@ func NewStore(path string) (*Store, error) {
 	return store, nil
 }
 
+func (store *Store) Ready(ctx context.Context) error { return ctx.Err() }
+
 func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.StoreOutcome, error) {
 	if err := ctx.Err(); err != nil {
 		return app.StoreOutcome{}, err
@@ -116,7 +120,8 @@ func (store *Store) ClaimPending(ctx context.Context, now time.Time, lease time.
 			continue
 		}
 		event.leaseUntil = now.Add(lease)
-		claimed = append(claimed, app.PendingEvent{Event: event.event, Attempts: event.attempts})
+		event.claimToken = rand.Text()
+		claimed = append(claimed, app.PendingEvent{Event: event.event, Attempts: event.attempts, ClaimToken: event.claimToken})
 		if len(claimed) == limit {
 			break
 		}
@@ -124,14 +129,18 @@ func (store *Store) ClaimPending(ctx context.Context, now time.Time, lease time.
 	return claimed, nil
 }
 
-func (store *Store) MarkPublished(ctx context.Context, eventID string, at time.Time) error {
+func (store *Store) MarkPublished(ctx context.Context, eventID, claimToken string, at time.Time) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if _, found := store.events[eventID]; !found {
+	event, found := store.events[eventID]
+	if !found {
 		return fmt.Errorf("outbox event %q not found", eventID)
+	}
+	if event.claimToken == "" || event.claimToken != claimToken {
+		return app.ErrLeaseLost
 	}
 	record := logRecord{Kind: "published", EventID: eventID, RecordedAt: at}
 	if err := store.append(record); err != nil {
@@ -146,8 +155,12 @@ func (store *Store) RecordFailure(ctx context.Context, failure app.PublishFailur
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if _, found := store.events[failure.EventID]; !found {
+	event, found := store.events[failure.EventID]
+	if !found {
 		return fmt.Errorf("outbox event %q not found", failure.EventID)
+	}
+	if event.claimToken == "" || event.claimToken != failure.ClaimToken {
+		return app.ErrLeaseLost
 	}
 	record := logRecord{Kind: "failed", Failure: &failure}
 	if err := store.append(record); err != nil {
@@ -194,6 +207,7 @@ func (store *Store) apply(record logRecord) error {
 		}
 		event.attempts, event.retryAt, event.terminal = record.Failure.Attempts, record.Failure.RetryAt, record.Failure.Terminal
 		event.leaseUntil = time.Time{}
+		event.claimToken = ""
 	case "published":
 		event, found := store.events[record.EventID]
 		if !found {
@@ -201,6 +215,7 @@ func (store *Store) apply(record logRecord) error {
 		}
 		event.published = true
 		event.leaseUntil = time.Time{}
+		event.claimToken = ""
 	default:
 		return fmt.Errorf("unknown record kind %q", record.Kind)
 	}

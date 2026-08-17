@@ -17,10 +17,13 @@ import (
 
 type fakeClient struct {
 	item         map[string]types.AttributeValue
+	getItems     []map[string]types.AttributeValue
 	getInput     *awssdk.GetItemInput
 	writeInput   *awssdk.TransactWriteItemsInput
 	queryInput   *awssdk.QueryInput
 	queryItems   []map[string]types.AttributeValue
+	queryOutputs []*awssdk.QueryOutput
+	queryInputs  []*awssdk.QueryInput
 	updateInputs []*awssdk.UpdateItemInput
 	updateErrors []error
 	getErr       error
@@ -30,6 +33,11 @@ type fakeClient struct {
 
 func (client *fakeClient) GetItem(_ context.Context, input *awssdk.GetItemInput, _ ...func(*awssdk.Options)) (*awssdk.GetItemOutput, error) {
 	client.getInput = input
+	if len(client.getItems) > 0 {
+		item := client.getItems[0]
+		client.getItems = client.getItems[1:]
+		return &awssdk.GetItemOutput{Item: item}, client.getErr
+	}
 	return &awssdk.GetItemOutput{Item: client.item}, client.getErr
 }
 
@@ -40,6 +48,12 @@ func (client *fakeClient) TransactWriteItems(_ context.Context, input *awssdk.Tr
 
 func (client *fakeClient) Query(_ context.Context, input *awssdk.QueryInput, _ ...func(*awssdk.Options)) (*awssdk.QueryOutput, error) {
 	client.queryInput = input
+	client.queryInputs = append(client.queryInputs, input)
+	if len(client.queryOutputs) > 0 {
+		output := client.queryOutputs[0]
+		client.queryOutputs = client.queryOutputs[1:]
+		return output, client.queryErr
+	}
 	return &awssdk.QueryOutput{Items: client.queryItems}, client.queryErr
 }
 
@@ -113,6 +127,23 @@ func TestStoreReturnsReplayOrConflictFromExistingIdentity(t *testing.T) {
 	}
 }
 
+func TestStoreReclassifiesConditionalAcceptanceRace(t *testing.T) {
+	t.Parallel()
+
+	acceptance := dynamoAcceptance()
+	client := &fakeClient{
+		getItems: []map[string]types.AttributeValue{nil, {
+			"fingerprint": &types.AttributeValueMemberS{Value: acceptance.Fingerprint},
+			"event_id":    &types.AttributeValueMemberS{Value: "evt-winner"},
+		}},
+		writeErr: &types.TransactionCanceledException{},
+	}
+	result, err := NewStore(client, "transactions").Accept(context.Background(), acceptance)
+	if err != nil || result.Kind != app.StoreReplay || result.EventID != "evt-winner" {
+		t.Fatalf("conditional race was not reclassified: %#v, %v", result, err)
+	}
+}
+
 func TestStoreClaimsDueOutboxEventsWithConditionalLease(t *testing.T) {
 	t.Parallel()
 
@@ -147,22 +178,42 @@ func TestStoreClaimsDueOutboxEventsWithConditionalLease(t *testing.T) {
 	}
 }
 
+func TestStorePaginatesPastFilteredLeadingPage(t *testing.T) {
+	t.Parallel()
+
+	payload, _ := json.Marshal(dynamoAcceptance().Event)
+	lastKey := map[string]types.AttributeValue{"dispatch_pk": &types.AttributeValueMemberS{Value: "OUTBOX#PENDING"}, "dispatch_sk": &types.AttributeValueMemberS{Value: "cursor"}}
+	client := &fakeClient{queryOutputs: []*awssdk.QueryOutput{
+		{LastEvaluatedKey: lastKey},
+		{Items: []map[string]types.AttributeValue{{
+			"pk": &types.AttributeValueMemberS{Value: "EVENT#evt-1"}, "event_payload": &types.AttributeValueMemberB{Value: payload}, "attempts": &types.AttributeValueMemberN{Value: "0"},
+		}}},
+	}}
+	events, err := NewStore(client, "transactions").ClaimPending(context.Background(), time.Now(), time.Minute, 1)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("claim beyond filtered page: %#v, %v", events, err)
+	}
+	if len(client.queryInputs) != 2 || len(client.queryInputs[1].ExclusiveStartKey) == 0 {
+		t.Fatalf("expected pagination cursor, got %#v", client.queryInputs)
+	}
+}
+
 func TestStoreRecordsPublishedRetryAndTerminalOutcomes(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 8, 16, 23, 0, 0, 0, time.UTC)
 	client := &fakeClient{}
 	store := NewStore(client, "transactions")
-	if err := store.MarkPublished(context.Background(), "evt-1", now); err != nil {
+	if err := store.MarkPublished(context.Background(), "evt-1", "claim-1", now); err != nil {
 		t.Fatalf("mark published: %v", err)
 	}
 	if err := store.RecordFailure(context.Background(), app.PublishFailure{
-		EventID: "evt-2", Attempts: 3, RetryAt: now.Add(time.Minute), Reason: "publish_failed",
+		EventID: "evt-2", ClaimToken: "claim-2", Attempts: 3, RetryAt: now.Add(time.Minute), Reason: "publish_failed",
 	}); err != nil {
 		t.Fatalf("record retry: %v", err)
 	}
 	if err := store.RecordFailure(context.Background(), app.PublishFailure{
-		EventID: "evt-3", Attempts: 5, Terminal: true, Reason: "publish_failed",
+		EventID: "evt-3", ClaimToken: "claim-3", Attempts: 5, Terminal: true, Reason: "publish_failed",
 	}); err != nil {
 		t.Fatalf("record terminal failure: %v", err)
 	}
@@ -232,7 +283,7 @@ func TestStoreRejectsMalformedPendingItemsAndOutcomeFailures(t *testing.T) {
 	}
 	want := errors.New("update failed")
 	client := &fakeClient{updateErrors: []error{want}}
-	if err := NewStore(client, "transactions").MarkPublished(context.Background(), "evt", time.Now()); !errors.Is(err, want) {
+	if err := NewStore(client, "transactions").MarkPublished(context.Background(), "evt", "claim", time.Now()); !errors.Is(err, want) {
 		t.Fatalf("expected outcome error, got %v", err)
 	}
 }

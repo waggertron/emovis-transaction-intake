@@ -19,8 +19,8 @@ Run focused tests, shared storage contracts, and the race detector.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `store.go` | Implements concurrency-safe atomic acceptance and lease-based outbox lifecycle. |
-| `store_test.go` | Specifies atomic acceptance, replay, conflict, and concurrency. |
+| `store.go` | Implements concurrency-safe atomic acceptance, readiness, and fenced outbox ownership. |
+| `store_test.go` | Specifies atomic acceptance, replay, conflict, fencing, and concurrency. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

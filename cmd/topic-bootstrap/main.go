@@ -10,7 +10,10 @@ import (
 	"strings"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	kafkago "github.com/segmentio/kafka-go"
+	secretconfig "github.com/waggertron/emovis-transaction-intake/internal/bootstrap/secrets"
 	kafkaadapter "github.com/waggertron/emovis-transaction-intake/internal/transaction/adapters/kafka"
 )
 
@@ -139,6 +142,10 @@ func secureKafkaDial(settings topicSettings) (kafkaDial, error) {
 func runProductionCLI(lookup func(string) string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	lookup, err := topicConfigurationLookup(ctx, lookup)
+	if err != nil {
+		return err
+	}
 	settings, err := loadTopicSettings(lookup)
 	if err != nil {
 		return err
@@ -152,6 +159,33 @@ func runProductionCLI(lookup func(string) string) error {
 	}
 	slog.Info("Kafka topic ready", "topic", settings.Topic.Name)
 	return nil
+}
+
+func topicConfigurationLookup(ctx context.Context, lookup func(string) string) (func(string) string, error) {
+	localPath, awsSecretID := lookup("LOCAL_SECRET_FILE"), lookup("AWS_SECRET_ID")
+	if localPath != "" && awsSecretID != "" {
+		return nil, fmt.Errorf("LOCAL_SECRET_FILE and AWS_SECRET_ID are mutually exclusive")
+	}
+	if localPath == "" && awsSecretID == "" {
+		return lookup, nil
+	}
+	var provider interface {
+		Load(context.Context) (map[string]string, error)
+	}
+	if localPath != "" {
+		provider = secretconfig.NewFileProvider(localPath)
+	} else {
+		config, err := awsconfig.LoadDefaultConfig(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("load AWS configuration")
+		}
+		provider = secretconfig.NewAWSProvider(secretsmanager.NewFromConfig(config), awsSecretID)
+	}
+	values, err := provider.Load(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load topic configuration: %w", err)
+	}
+	return secretconfig.Overlay(lookup, values), nil
 }
 
 func exitCode(err error) int {

@@ -2,26 +2,31 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
 
 type PendingEvent struct {
-	Event    OutboxEvent
-	Attempts int
+	Event      OutboxEvent
+	Attempts   int
+	ClaimToken string
 }
 
+var ErrLeaseLost = errors.New("outbox lease lost")
+
 type PublishFailure struct {
-	EventID  string
-	Attempts int
-	RetryAt  time.Time
-	Terminal bool
-	Reason   string
+	EventID    string
+	ClaimToken string
+	Attempts   int
+	RetryAt    time.Time
+	Terminal   bool
+	Reason     string
 }
 
 type OutboxStore interface {
 	ClaimPending(context.Context, time.Time, time.Duration, int) ([]PendingEvent, error)
-	MarkPublished(context.Context, string, time.Time) error
+	MarkPublished(context.Context, string, string, time.Time) error
 	RecordFailure(context.Context, PublishFailure) error
 }
 
@@ -75,7 +80,7 @@ func (dispatcher *Dispatcher) RunBatch(ctx context.Context) (DispatchResult, err
 	result := DispatchResult{Claimed: len(events)}
 	for _, pending := range events {
 		if err := dispatcher.publisher.Publish(ctx, pending.Event); err == nil {
-			if markErr := dispatcher.store.MarkPublished(ctx, pending.Event.ID, now); markErr != nil {
+			if markErr := dispatcher.store.MarkPublished(ctx, pending.Event.ID, pending.ClaimToken, now); markErr != nil {
 				return result, fmt.Errorf("mark event %s published: %w", pending.Event.ID, markErr)
 			}
 			result.Published++
@@ -84,7 +89,7 @@ func (dispatcher *Dispatcher) RunBatch(ctx context.Context) (DispatchResult, err
 
 		attempts := pending.Attempts + 1
 		failure := PublishFailure{
-			EventID: pending.Event.ID, Attempts: attempts,
+			EventID: pending.Event.ID, ClaimToken: pending.ClaimToken, Attempts: attempts,
 			Terminal: attempts >= dispatcher.config.MaxAttempts,
 			Reason:   "publish_failed",
 		}

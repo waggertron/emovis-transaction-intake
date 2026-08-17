@@ -6,5 +6,6 @@ coverage
 *.tfplan
 *.tfstate
 *.tfstate.*
-.env
+.env*
+!.env*.example
 *.out

@@ -10,6 +10,7 @@ Applies to the transaction application package.
 - Depend on domain code and consumer-owned ports only.
 - Validate before side effects and preserve atomic transaction/outbox intent.
 - Inject clocks, IDs, storage, and publishers for deterministic tests.
+- Require opaque claim ownership on every outbox completion; stale workers must fail closed.
 
 ## Usage
 Call application services from transport adapters and workers.
@@ -22,8 +23,8 @@ Run `go test ./internal/transaction/app` and its race-enabled form.
 | --- | --- |
 | `intake.go` | Defines the intake use case, storage port, and outbox envelope. |
 | `intake_test.go` | Specifies intake orchestration, idempotency, and failure behavior. |
-| `outbox.go` | Defines lease-based outbox dispatch and bounded retry policy. |
-| `outbox_test.go` | Specifies lease, publication, retry, and terminal-failure policy. |
+| `outbox.go` | Defines fenced lease-based outbox dispatch and bounded retry policy. |
+| `outbox_test.go` | Specifies claim ownership, publication, retry, and terminal-failure policy. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

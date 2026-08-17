@@ -20,7 +20,7 @@ Confirm the script exits zero and no project containers remain.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `local.sh` | Runs and cleans the complete local transaction flow. |
+| `local.sh` | Clears stale named-project state, runs the complete local transaction flow, and proves cleanup. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

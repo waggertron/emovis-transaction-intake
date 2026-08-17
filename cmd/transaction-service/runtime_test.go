@@ -150,13 +150,34 @@ type noOpPublisher struct{}
 
 func (noOpPublisher) Publish(context.Context, app.OutboxEvent) error { return nil }
 
+type readinessStore struct{ err error }
+
+func (store readinessStore) Ready(context.Context) error { return store.err }
+
+func TestReadinessReflectsStoreAvailability(t *testing.T) {
+	t.Parallel()
+	if !readyForRequests(readinessStore{}) {
+		t.Fatal("healthy store should be ready")
+	}
+	if readyForRequests(readinessStore{err: errors.New("unavailable")}) {
+		t.Fatal("unavailable store should not be ready")
+	}
+	if readyForRequests(struct{}{}) {
+		t.Fatal("store without readiness contract should fail closed")
+	}
+	handle := &storeHandle{TransactionStore: memory.NewStore()}
+	if err := handle.Ready(context.Background()); err != nil {
+		t.Fatalf("store handle readiness: %v", err)
+	}
+}
+
 type failingOutboxStore struct{ err error }
 
 func (store failingOutboxStore) ClaimPending(context.Context, time.Time, time.Duration, int) ([]app.PendingEvent, error) {
 	return nil, store.err
 }
-func (failingOutboxStore) MarkPublished(context.Context, string, time.Time) error  { return nil }
-func (failingOutboxStore) RecordFailure(context.Context, app.PublishFailure) error { return nil }
+func (failingOutboxStore) MarkPublished(context.Context, string, string, time.Time) error { return nil }
+func (failingOutboxStore) RecordFailure(context.Context, app.PublishFailure) error        { return nil }
 
 func TestWorkerLoopStopsOnCancellationAndWrapsStoreFailure(t *testing.T) {
 	t.Parallel()

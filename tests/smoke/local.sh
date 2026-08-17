@@ -4,13 +4,18 @@ set -euo pipefail
 project="emovis-transaction-intake"
 temp_dir="$(mktemp -d -t emovis-smoke.XXXXXX)"
 
-cleanup() {
+cleanup_stack() {
   docker compose -p "${project}" -f compose.yaml down --remove-orphans --volumes >/dev/null
+}
+
+cleanup() {
+  cleanup_stack
   find "${temp_dir}" -type f -delete
   rmdir "${temp_dir}"
 }
 trap cleanup EXIT
 
+cleanup_stack
 make --no-print-directory compose-up
 curl --fail --silent --show-error --retry 20 --retry-delay 1 --retry-all-errors \
   http://127.0.0.1:8080/healthz >"${temp_dir}/health.json"

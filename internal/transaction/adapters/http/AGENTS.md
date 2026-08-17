@@ -8,6 +8,7 @@ Applies to the HTTP adapter package.
 
 ## Local rules
 - Bound request bodies, reject unknown JSON fields, and map errors without leaking internals.
+- Require the documented JSON media type for transaction intake.
 - Authenticate state-changing requests and derive partner identity from credentials.
 - Keep handlers limited to transport parsing, application calls, and response mapping.
 
@@ -21,7 +22,7 @@ Run focused HTTP tests and compare them with the OpenAPI contract.
 | Element | Behavior |
 | --- | --- |
 | `handler.go` | Implements bounded authenticated HTTP transport and operational endpoints. |
-| `handler_test.go` | Specifies authentication, request parsing, status mapping, and operational endpoints. |
+| `handler_test.go` | Specifies authentication, media types, request parsing, status mapping, and operational endpoints. |
 | `static_auth.go` | Authenticates configured API keys using fixed-length constant-time comparisons. |
 | `static_auth_test.go` | Specifies secure static API-key authentication behavior. |
 

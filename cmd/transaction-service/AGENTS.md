@@ -10,6 +10,7 @@ Applies to the transaction-service executable.
 - Support only `api`, `worker`, and `local` modes.
 - Use explicit HTTP limits, graceful shutdown, and externally supplied secrets.
 - Keep local combined mode on a shared store.
+- Make API readiness a bounded selected-store check without coupling intake to Kafka.
 
 ## Usage
 Invoke through `make run-api`, `make run-worker`, or `make run-local`.
@@ -22,8 +23,8 @@ Run command unit tests, `make build`, and Compose smoke tests.
 | --- | --- |
 | `main.go` | Parses mode/configuration and selects the exact process starter. |
 | `main_test.go` | Specifies mode dispatch and configuration failure behavior. |
-| `runtime.go` | Wires HTTP, memory storage, outbox dispatch, Kafka, and graceful lifecycle. |
-| `runtime_test.go` | Specifies safe storage-driver selection and local state setup. |
+| `runtime.go` | Wires HTTP, storage-backed readiness, outbox dispatch, Kafka, and graceful lifecycle. |
+| `runtime_test.go` | Specifies readiness, safe storage-driver selection, and local state setup. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

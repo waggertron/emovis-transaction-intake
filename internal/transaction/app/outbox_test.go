@@ -23,7 +23,7 @@ func (store *fakeOutboxStore) ClaimPending(_ context.Context, _ time.Time, lease
 	return store.events, store.claimErr
 }
 
-func (store *fakeOutboxStore) MarkPublished(_ context.Context, eventID string, _ time.Time) error {
+func (store *fakeOutboxStore) MarkPublished(_ context.Context, eventID, _ string, _ time.Time) error {
 	store.marked = append(store.marked, eventID)
 	return store.markErr
 }

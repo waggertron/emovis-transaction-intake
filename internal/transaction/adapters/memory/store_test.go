@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -117,7 +118,7 @@ func TestStoreOutboxLeaseRetryAndCompletionLifecycle(t *testing.T) {
 	}
 
 	retryAt := now.Add(time.Minute)
-	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: "evt-1", Attempts: 1, RetryAt: retryAt, Reason: "publish_failed"}); err != nil {
+	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: "evt-1", ClaimToken: claimed[0].ClaimToken, Attempts: 1, RetryAt: retryAt, Reason: "publish_failed"}); err != nil {
 		t.Fatalf("record failure: %v", err)
 	}
 	claimed, _ = store.ClaimPending(ctx, retryAt.Add(-time.Nanosecond), 30*time.Second, 10)
@@ -128,7 +129,7 @@ func TestStoreOutboxLeaseRetryAndCompletionLifecycle(t *testing.T) {
 	if len(claimed) != 1 || claimed[0].Attempts != 1 {
 		t.Fatalf("retry event not claimed: %#v", claimed)
 	}
-	if err := store.MarkPublished(ctx, "evt-1", retryAt); err != nil {
+	if err := store.MarkPublished(ctx, "evt-1", claimed[0].ClaimToken, retryAt); err != nil {
 		t.Fatalf("mark published: %v", err)
 	}
 	claimed, _ = store.ClaimPending(ctx, retryAt.Add(time.Hour), 30*time.Second, 10)
@@ -145,11 +146,43 @@ func TestStoreDoesNotClaimTerminalFailure(t *testing.T) {
 	if _, err := store.Accept(ctx, testAcceptance()); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
-	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: "evt-1", Attempts: 5, Terminal: true, Reason: "publish_failed"}); err != nil {
+	claimed, err := store.ClaimPending(ctx, time.Now(), 30*time.Second, 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim terminal event: %#v, %v", claimed, err)
+	}
+	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: "evt-1", ClaimToken: claimed[0].ClaimToken, Attempts: 5, Terminal: true, Reason: "publish_failed"}); err != nil {
 		t.Fatalf("record terminal failure: %v", err)
 	}
-	claimed, err := store.ClaimPending(ctx, time.Now(), 30*time.Second, 10)
+	claimed, err = store.ClaimPending(ctx, time.Now(), 30*time.Second, 10)
 	if err != nil || len(claimed) != 0 {
 		t.Fatalf("terminal event was claimable: %#v, %v", claimed, err)
+	}
+}
+
+func TestStoreRejectsCompletionFromExpiredClaimOwner(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 6, 0, 0, 0, time.UTC)
+	store := NewStore()
+	if _, err := store.Accept(ctx, testAcceptance()); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	first, err := store.ClaimPending(ctx, now, 30*time.Second, 1)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("first claim: %#v, %v", first, err)
+	}
+	second, err := store.ClaimPending(ctx, now.Add(31*time.Second), 30*time.Second, 1)
+	if err != nil || len(second) != 1 || second[0].ClaimToken == first[0].ClaimToken {
+		t.Fatalf("replacement claim: %#v, %v", second, err)
+	}
+	if err := store.MarkPublished(ctx, "evt-1", first[0].ClaimToken, now.Add(32*time.Second)); !errors.Is(err, app.ErrLeaseLost) {
+		t.Fatalf("stale publication should lose lease, got %v", err)
+	}
+	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: "evt-1", ClaimToken: first[0].ClaimToken, Attempts: 1}); !errors.Is(err, app.ErrLeaseLost) {
+		t.Fatalf("stale failure should lose lease, got %v", err)
+	}
+	if err := store.MarkPublished(ctx, "evt-1", second[0].ClaimToken, now.Add(32*time.Second)); err != nil {
+		t.Fatalf("current owner publication: %v", err)
 	}
 }

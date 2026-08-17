@@ -28,6 +28,10 @@ jobs:
         run: make lint
       - name: Build commands
         run: make build
+      - name: Graviton-compatible commands
+        run: make build-arm64
+      - name: Graviton-compatible production image
+        run: make image-arm64
       - name: Compose model
         run: make compose-config
       - name: Repository static validation

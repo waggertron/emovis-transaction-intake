@@ -9,6 +9,7 @@ Applies to API description files under `api/`.
 ## Local rules
 - Label the contract as mocked because no source specification was supplied.
 - Keep examples, status codes, headers, and schemas aligned with handler tests.
+- Document method and media-type rejection and validate the document through a parsed semantic contract.
 
 ## Usage
 Review before modifying HTTP requests or responses.

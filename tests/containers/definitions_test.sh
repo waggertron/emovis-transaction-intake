@@ -4,7 +4,7 @@ set -euo pipefail
 [[ -f Dockerfile ]] || { echo "missing Dockerfile" >&2; exit 1; }
 [[ -f .dockerignore ]] || { echo "missing .dockerignore" >&2; exit 1; }
 [[ -f compose.yaml ]] || { echo "missing compose.yaml" >&2; exit 1; }
-grep -Fq 'FROM golang:1.26.6-alpine AS build' Dockerfile || { echo "builder must use the remediated Go toolchain" >&2; exit 1; }
+grep -Fq 'golang:1.26.6-alpine AS build' Dockerfile || { echo "builder must use the remediated Go toolchain" >&2; exit 1; }
 
 for target in api worker local topic-bootstrap; do
   grep -Eq "^FROM .* AS ${target}$" Dockerfile || {
@@ -13,6 +13,14 @@ for target in api worker local topic-bootstrap; do
   }
 done
 grep -Eq '^USER [^0]' Dockerfile || { echo "runtime must be non-root" >&2; exit 1; }
+grep -Fq 'build-arm64:' Makefile || { echo "missing Linux ARM64 artifact validation target for Graviton" >&2; exit 1; }
+grep -Fq 'GOOS=linux GOARCH=arm64' Makefile || { echo "ARM64 target must compile for Linux ARM64" >&2; exit 1; }
+grep -Fq 'make build-arm64' .github/workflows/ci.yml || { echo "CI does not validate the Graviton artifact architecture" >&2; exit 1; }
+grep -Fq 'image-arm64:' Makefile || { echo "missing Linux ARM64 production image validation target" >&2; exit 1; }
+grep -Fq 'make image-arm64' .github/workflows/ci.yml || { echo "CI does not validate the Graviton image architecture" >&2; exit 1; }
+grep -Fq 'ARG TARGETARCH' Dockerfile || { echo "Dockerfile does not honor the target architecture" >&2; exit 1; }
+grep -Fq 'down --remove-orphans --volumes >/dev/null' tests/smoke/local.sh || { echo "smoke must clear stale project state before startup" >&2; exit 1; }
+grep -B1 -F 'make --no-print-directory compose-up' tests/smoke/local.sh | grep -Fq 'cleanup_stack' || { echo "smoke must clear stale stack immediately before startup" >&2; exit 1; }
 for ignored in .git .local tmp coverage; do
   grep -Fxq "${ignored}" .dockerignore || { echo "Docker context does not ignore: ${ignored}" >&2; exit 1; }
 done

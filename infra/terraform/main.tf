@@ -322,15 +322,32 @@ resource "aws_msk_cluster" "main" {
   tags = local.tags
 }
 resource "aws_msk_scram_secret_association" "main" {
+  count           = var.runtime_secrets_ready ? 1 : 0
   cluster_arn     = aws_msk_cluster.main.arn
-  secret_arn_list = [aws_secretsmanager_secret.kafka.arn]
+  secret_arn_list = [module.shared.kafka_secret_arn]
+}
+
+resource "kubernetes_namespace_v1" "transaction_intake" {
+  count = var.local_validation ? 0 : 1
+  metadata { name = "transaction-intake" }
+}
+
+resource "kubernetes_service_account_v1" "transaction_intake" {
+  count = var.local_validation ? 0 : 1
+  metadata {
+    name      = "transaction-intake"
+    namespace = kubernetes_namespace_v1.transaction_intake[0].metadata[0].name
+    annotations = {
+      "eks.amazonaws.com/role-arn" = aws_iam_role.workload.arn
+    }
+  }
 }
 
 resource "kubernetes_job_v1" "topic_bootstrap" {
-  count = var.local_validation ? 0 : 1
+  count = !var.local_validation && var.runtime_secrets_ready ? 1 : 0
   metadata {
     name      = "transaction-intake-topic-bootstrap"
-    namespace = "transaction-intake"
+    namespace = kubernetes_namespace_v1.transaction_intake[0].metadata[0].name
   }
   spec {
     backoff_limit              = 6
@@ -340,7 +357,7 @@ resource "kubernetes_job_v1" "topic_bootstrap" {
         labels = { app = "transaction-intake-topic-bootstrap" }
       }
       spec {
-        service_account_name = "transaction-intake"
+        service_account_name = kubernetes_service_account_v1.transaction_intake[0].metadata[0].name
         restart_policy       = "OnFailure"
         security_context {
           run_as_non_root = true
@@ -376,22 +393,8 @@ resource "kubernetes_job_v1" "topic_bootstrap" {
             value = "true"
           }
           env {
-            name = "KAFKA_SASL_USERNAME"
-            value_from {
-              secret_key_ref {
-                name = "transaction-intake-runtime"
-                key  = "kafka-username"
-              }
-            }
-          }
-          env {
-            name = "KAFKA_SASL_PASSWORD"
-            value_from {
-              secret_key_ref {
-                name = "transaction-intake-runtime"
-                key  = "kafka-password"
-              }
-            }
+            name  = "AWS_SECRET_ID"
+            value = module.shared.api_secret_name
           }
           resources {
             requests = { cpu = "50m", memory = "64Mi" }
@@ -409,105 +412,50 @@ resource "kubernetes_job_v1" "topic_bootstrap" {
       }
     }
   }
-  depends_on = [aws_msk_scram_secret_association.main]
+  depends_on = [aws_msk_scram_secret_association.main, kubernetes_service_account_v1.transaction_intake]
 }
 
-resource "aws_dynamodb_table" "transactions" {
-  name         = var.name
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "pk"
-  range_key    = "sk"
-  attribute {
-    name = "pk"
-    type = "S"
-  }
-  attribute {
-    name = "sk"
-    type = "S"
-  }
-  attribute {
-    name = "dispatch_pk"
-    type = "S"
-  }
-  attribute {
-    name = "dispatch_sk"
-    type = "S"
-  }
-  global_secondary_index {
-    name            = "outbox-dispatch"
-    hash_key        = "dispatch_pk"
-    range_key       = "dispatch_sk"
-    projection_type = "ALL"
-  }
-  point_in_time_recovery { enabled = true }
-  server_side_encryption {
-    enabled     = true
-    kms_key_arn = aws_kms_key.data.arn
-  }
-  deletion_protection_enabled = var.deletion_protection
-  tags                        = local.tags
+module "shared" {
+  source      = "./modules/shared"
+  name        = var.name
+  kms_key_arn = aws_kms_key.data.arn
+  tags        = local.tags
 }
 
-resource "aws_db_subnet_group" "main" {
-  name       = var.name
-  subnet_ids = aws_subnet.private[*].id
-  tags       = local.tags
-}
-resource "aws_secretsmanager_secret" "postgres" {
-  name                    = "${var.name}/postgres"
-  kms_key_id              = aws_kms_key.data.arn
-  recovery_window_in_days = 7
-  tags                    = local.tags
-}
-resource "aws_secretsmanager_secret" "kafka" {
-  name                    = "AmazonMSK_${replace(var.name, "-", "_")}"
-  kms_key_id              = aws_kms_key.data.arn
-  recovery_window_in_days = 7
-  tags                    = local.tags
-}
-resource "aws_secretsmanager_secret" "api" {
-  name                    = "${var.name}/api"
-  kms_key_id              = aws_kms_key.data.arn
-  recovery_window_in_days = 7
-  tags                    = local.tags
+module "dynamodb" {
+  count               = var.storage_backend == "dynamodb" ? 1 : 0
+  source              = "./modules/dynamodb"
+  name                = var.name
+  kms_key_arn         = aws_kms_key.data.arn
+  deletion_protection = var.deletion_protection
+  tags                = local.tags
 }
 
-resource "aws_db_instance" "postgres" {
-  identifier                          = var.name
-  engine                              = "postgres"
-  engine_version                      = "17.6"
-  instance_class                      = var.db_instance_class
-  allocated_storage                   = 30
-  max_allocated_storage               = 100
-  storage_type                        = "gp3"
-  storage_encrypted                   = true
-  kms_key_id                          = aws_kms_key.data.arn
-  db_name                             = "transactions"
-  username                            = "transaction_admin"
-  manage_master_user_password         = true
-  iam_database_authentication_enabled = true
-  master_user_secret_kms_key_id       = aws_kms_key.data.arn
-  db_subnet_group_name                = aws_db_subnet_group.main.name
-  vpc_security_group_ids              = [aws_security_group.data.id]
-  publicly_accessible                 = false
-  multi_az                            = true
-  backup_retention_period             = 7
-  deletion_protection                 = var.deletion_protection
-  skip_final_snapshot                 = !var.deletion_protection
-  enabled_cloudwatch_logs_exports     = ["postgresql", "upgrade"]
-  tags                                = local.tags
+module "postgres" {
+  count               = var.storage_backend == "postgres" ? 1 : 0
+  source              = "./modules/postgres"
+  name                = var.name
+  kms_key_arn         = aws_kms_key.data.arn
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_id   = aws_security_group.data.id
+  instance_class      = var.db_instance_class
+  deletion_protection = var.deletion_protection
+  tags                = local.tags
 }
 
 data "aws_iam_policy_document" "workload" {
-  statement {
-    sid       = "DynamoTransactions"
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:TransactWriteItems", "dynamodb:DescribeTable"]
-    resources = [aws_dynamodb_table.transactions.arn, "${aws_dynamodb_table.transactions.arn}/index/outbox-dispatch"]
+  dynamic "statement" {
+    for_each = var.storage_backend == "dynamodb" ? [1] : []
+    content {
+      sid       = "DynamoTransactions"
+      actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:TransactWriteItems", "dynamodb:DescribeTable"]
+      resources = [module.dynamodb[0].table_arn, module.dynamodb[0].index_arn]
+    }
   }
   statement {
     sid       = "ReadRuntimeSecrets"
     actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
-    resources = [aws_secretsmanager_secret.postgres.arn, aws_secretsmanager_secret.kafka.arn, aws_secretsmanager_secret.api.arn]
+    resources = concat([module.shared.api_secret_arn, module.shared.kafka_secret_arn], module.postgres[*].secret_arn)
   }
   statement {
     sid       = "UseDataKey"

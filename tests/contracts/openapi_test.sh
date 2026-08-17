@@ -16,3 +16,4 @@ for status in 200 201 400 401 409 413 422 503; do
 done
 grep -Fq 'Idempotent-Replay:' "${spec}"
 grep -Fq 'X-API-Key' "${spec}"
+go test ./tests/contracts -run TestOpenAPIContractIsStructurallyComplete -count=1

@@ -7,8 +7,13 @@ COMPOSE_FILE ?= compose.yaml
 GITLEAKS_IMAGE ?= zricethezav/gitleaks:v8.24.2
 TRIVY_IMAGE ?= aquasec/trivy:0.59.1
 SECURITY_IMAGE ?= emovis-transaction-intake:security-review
+ARM64_IMAGE ?= emovis-transaction-intake:arm64-validation
+ENV_FILE ?= .env
+TFVARS ?=
+LOCAL_PARTNER_ID ?= local-partner
+LOCAL_API_KEY ?= local-development-only-key
 
-.PHONY: help test test-unit test-race test-contract lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke coverage test-component test-component-storage test-component-postgres test-component-dynamodb test-component-kafka test-component-kafka-secure test-component-secrets test-e2e test-e2e-memory test-e2e-ndjson test-e2e-postgres test-e2e-dynamodb test-e2e-secrets test-e2e-kafka-secure test-cloud-equivalence terraform-fmt terraform-init terraform-validate terraform-plan k8s-validate test-infrastructure docs-validate security security-vuln security-secrets security-config security-image validate-static validate clean
+.PHONY: help test test-unit test-race test-contract lint format-check vet build build-arm64 image-arm64 run-api run-worker run-local compose-up compose-down compose-config smoke coverage test-component test-component-storage test-component-postgres test-component-dynamodb test-component-kafka test-component-kafka-secure test-component-secrets test-e2e test-e2e-memory test-e2e-ndjson test-e2e-postgres test-e2e-dynamodb test-e2e-secrets test-e2e-kafka-secure test-cloud-equivalence terraform-fmt terraform-init terraform-validate terraform-plan k8s-validate test-infrastructure docs-validate security security-vuln security-secrets security-config security-image validate-static validate clean
 
 help: ## Show all canonical test, build, run, Compose, component, validation, and cleanup commands
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "%-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -42,14 +47,24 @@ build: ## Build every Go command
 	go build -o .local/bin/transaction-service ./cmd/transaction-service
 	go build -o .local/bin/topic-bootstrap ./cmd/topic-bootstrap
 
-run-api: ## Run the API process with explicit local configuration
-	go run ./cmd/transaction-service api
+build-arm64: ## Cross-compile every production command for the Graviton EKS node architecture
+	mkdir -p .local/bin/linux-arm64
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o .local/bin/linux-arm64/transaction-service ./cmd/transaction-service
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o .local/bin/linux-arm64/topic-bootstrap ./cmd/topic-bootstrap
+	file .local/bin/linux-arm64/transaction-service .local/bin/linux-arm64/topic-bootstrap | grep -q 'ARM aarch64'
 
-run-worker: ## Run the outbox worker process with explicit local configuration
-	go run ./cmd/transaction-service worker
+image-arm64: ## Build and inspect the production API image for Linux ARM64
+	docker buildx build --platform linux/arm64 --target api --load -t $(ARM64_IMAGE) .
+	docker image inspect --format '{{.Architecture}}' $(ARM64_IMAGE) | grep -qx arm64
+
+run-api: ## Run the API process with documented non-production local credentials
+	@if [[ -f "$(ENV_FILE)" ]]; then set -a; source "$(ENV_FILE)"; set +a; fi; PARTNER_ID="$${PARTNER_ID:-$(LOCAL_PARTNER_ID)}" API_KEY="$${API_KEY:-$(LOCAL_API_KEY)}" go run ./cmd/transaction-service api
+
+run-worker: ## Run the worker with documented non-production local credentials
+	@if [[ -f "$(ENV_FILE)" ]]; then set -a; source "$(ENV_FILE)"; set +a; fi; PARTNER_ID="$${PARTNER_ID:-$(LOCAL_PARTNER_ID)}" API_KEY="$${API_KEY:-$(LOCAL_API_KEY)}" go run ./cmd/transaction-service worker
 
 run-local: ## Run the combined local API and worker process
-	go run ./cmd/transaction-service local
+	@if [[ -f "$(ENV_FILE)" ]]; then set -a; source "$(ENV_FILE)"; set +a; fi; PARTNER_ID="$${PARTNER_ID:-$(LOCAL_PARTNER_ID)}" API_KEY="$${API_KEY:-$(LOCAL_API_KEY)}" go run ./cmd/transaction-service local
 
 compose-up: ## Build and start the complete local system
 	docker compose -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE) up --build --detach --wait
@@ -120,14 +135,16 @@ terraform-validate: terraform-init ## Validate Terraform without cloud credentia
 	terraform -chdir=infra/terraform validate
 
 terraform-plan: terraform-init ## Create a no-credential, non-applying example Terraform plan
+	@test -n "$(TFVARS)" || { echo "TFVARS is required; choose dynamodb.tfvars.example or postgres.tfvars.example" >&2; exit 2; }
 	mkdir -p .local/terraform
-	terraform -chdir=infra/terraform plan -input=false -refresh=false -lock=false -var-file=terraform.tfvars.example -out=../../.local/terraform/example.tfplan
+	terraform -chdir=infra/terraform plan -input=false -refresh=false -lock=false -var-file=$(TFVARS) -out=../../.local/terraform/example.tfplan
 
 k8s-validate: ## Validate Kubernetes YAML structure and client-side schemas without applying
 	kubectl kustomize deploy/kubernetes | env PYTHONDONTWRITEBYTECODE=1 python3 tests/infrastructure/validate_kubernetes.py
 
-test-infrastructure: ## Run local Terraform and Kubernetes security-policy contracts
+test-infrastructure: terraform-init ## Run local Terraform and Kubernetes security-policy and selection contracts
 	bash tests/infrastructure/infrastructure_test.sh
+	bash tests/infrastructure/storage_selection.sh
 
 docs-validate: ## Validate all repository-relative Markdown links
 	env PYTHONDONTWRITEBYTECODE=1 python3 tests/documentation/link_check.py .
@@ -148,7 +165,7 @@ security-image: ## Build and scan the production API image for severe vulnerabil
 
 security: security-vuln security-secrets security-config security-image ## Run all locally reproducible security gates
 
-validate-static: test test-contract coverage lint compose-config docs-validate ## Run fast locally reproducible delivery gates
+validate-static: test test-race test-contract coverage lint build-arm64 image-arm64 compose-config docs-validate ## Run fast locally reproducible delivery gates
 	env PYTHONDONTWRITEBYTECODE=1 python3 .codex/skills/agent-instruction-hierarchy/scripts/validate_hierarchy.py --root .
 	git diff --check
 

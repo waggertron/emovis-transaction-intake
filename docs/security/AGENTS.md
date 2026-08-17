@@ -21,6 +21,7 @@ Run `make security`, `make test-race`, and the affected infrastructure/product g
 | Element | Behavior |
 | --- | --- |
 | `2026-08-17-final-review.md` | Records scope, findings, remediation, limitations, and release evidence. |
+| `2026-08-17-adversarial-follow-up.md` | Reopens the release assessment and tracks remediation of cross-cutting adversarial findings. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

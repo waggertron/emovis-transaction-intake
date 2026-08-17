@@ -93,7 +93,7 @@ func startLocal(ctx context.Context, config bootstrap.Config) error {
 func serveAPI(ctx context.Context, config bootstrap.Config, store app.IntakeStore) error {
 	intake := app.NewIntakeService(store, time.Now, rand.Text)
 	auth := httpadapter.NewStaticAPIKeys(map[string]string{config.PartnerID: config.APIKey})
-	handler := httpadapter.NewHandler(intake, auth, rand.Text, func() bool { return true })
+	handler := httpadapter.NewHandler(intake, auth, rand.Text, func() bool { return readyForRequests(store) })
 	server := bootstrap.NewHTTPServer(config.Address, handler)
 	slog.Info("HTTP server starting", "address", config.Address)
 	return serveHTTPServer(ctx, server)
@@ -139,6 +139,28 @@ func newDispatcher(config bootstrap.Config, store app.OutboxStore) (interface{ C
 type storeHandle struct {
 	app.TransactionStore
 	close func() error
+}
+
+type readinessChecker interface {
+	Ready(context.Context) error
+}
+
+func readyForRequests(store any) bool {
+	checker, ok := store.(readinessChecker)
+	if !ok {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	return checker.Ready(ctx) == nil
+}
+
+func (store *storeHandle) Ready(ctx context.Context) error {
+	checker, ok := store.TransactionStore.(readinessChecker)
+	if !ok {
+		return fmt.Errorf("store does not implement readiness")
+	}
+	return checker.Ready(ctx)
 }
 
 func (store *storeHandle) Close() error {

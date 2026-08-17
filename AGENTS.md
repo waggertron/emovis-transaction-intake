@@ -23,7 +23,9 @@ Run the hierarchy validator, focused tests, and repository validation target.
 | --- | --- |
 | `.codex` | Contains repository-local Codex skills. |
 | `.dockerignore` | Excludes VCS, local build, test, and runtime artifacts from image contexts. |
-| `.gitignore` | Excludes local build, test, and runtime artifacts. |
+| `.env.local.example` | Documents a safe, runnable local configuration without real credentials. |
+| `.env.production.example` | Documents the full production-shaped configuration with non-secret placeholders. |
+| `.gitignore` | Excludes local build, test, runtime, and all non-example dotenv artifacts. |
 | `.gitleaks.toml` | Allows only named local sentinel keys while scanning source and history. |
 | `.github` | Contains least-privilege hosted CI configuration. |
 | `Dockerfile` | Builds reproducible non-root images for each executable mode. |

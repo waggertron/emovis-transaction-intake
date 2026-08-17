@@ -8,7 +8,7 @@ Applies to infrastructure contract and policy tests.
 
 ## Local rules
 - Never run `terraform apply` or `kubectl apply`.
-- Assert encryption, least privilege, private networking, probes, resources, non-root execution, and external secret references.
+- Assert encryption, least privilege, private networking, probes, resources, non-root execution, complete references/selectors, and external secret loading.
 - Keep no-credential validation deterministic and self-cleaning.
 
 ## Usage
@@ -20,8 +20,9 @@ The suite fails for missing resources, plaintext secrets, mutable images, public
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `infrastructure_test.sh` | Checks required Terraform resources, policies, and Kubernetes workload controls. |
-| `validate_kubernetes.py` | Parses the locally rendered manifests and rejects malformed or incomplete Kubernetes objects. |
+| `infrastructure_test.sh` | Checks required Terraform resources, current DynamoDB index schemas, policies, and Kubernetes workload controls. |
+| `storage_selection.sh` | Proves missing selection fails and each example plan contains only its chosen persistence implementation. |
+| `validate_kubernetes.py` | Parses rendered manifests and rejects missing namespaces, identities, secrets, selectors, environment, resources, or immutable images. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

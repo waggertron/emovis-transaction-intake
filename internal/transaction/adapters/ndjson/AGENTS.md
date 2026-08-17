@@ -20,8 +20,8 @@ Run focused persistence tests and the race detector using temporary directories.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `store.go` | Implements durable append-before-visible transaction and outbox transitions. |
-| `store_test.go` | Specifies restart persistence, idempotency, and outbox lifecycle. |
+| `store.go` | Implements durable append-before-visible transitions with in-process fenced claims and readiness. |
+| `store_test.go` | Specifies restart persistence, idempotency, fencing, and outbox lifecycle. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

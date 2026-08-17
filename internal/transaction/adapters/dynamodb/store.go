@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,28 +31,28 @@ func NewStore(client Client, table string) *Store {
 	return &Store{client: client, table: table}
 }
 
-func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.StoreOutcome, error) {
-	identityKey := "TX#" + acceptance.Transaction.PartnerID + "#" + acceptance.Transaction.ID
-	existing, err := store.client.GetItem(ctx, &awssdk.GetItemInput{
+func (store *Store) Ready(ctx context.Context) error {
+	_, err := store.client.GetItem(ctx, &awssdk.GetItemInput{
 		TableName: aws.String(store.table), ConsistentRead: aws.Bool(true),
 		Key: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: identityKey},
-			"sk": &types.AttributeValueMemberS{Value: "TRANSACTION"},
+			"pk": &types.AttributeValueMemberS{Value: "READY#PROBE"},
+			"sk": &types.AttributeValueMemberS{Value: "READY#PROBE"},
 		},
 	})
 	if err != nil {
-		return app.StoreOutcome{}, fmt.Errorf("read transaction identity: %w", err)
+		return fmt.Errorf("check DynamoDB readiness: %w", err)
 	}
-	if len(existing.Item) > 0 {
-		fingerprint, fingerprintOK := existing.Item["fingerprint"].(*types.AttributeValueMemberS)
-		eventID, eventOK := existing.Item["event_id"].(*types.AttributeValueMemberS)
-		if !fingerprintOK || !eventOK {
-			return app.StoreOutcome{}, fmt.Errorf("stored transaction identity is malformed")
-		}
-		if fingerprint.Value == acceptance.Fingerprint {
-			return app.StoreOutcome{Kind: app.StoreReplay, EventID: eventID.Value}, nil
-		}
-		return app.StoreOutcome{Kind: app.StoreConflict}, nil
+	return nil
+}
+
+func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.StoreOutcome, error) {
+	identityKey := "TX#" + acceptance.Transaction.PartnerID + "#" + acceptance.Transaction.ID
+	existingOutcome, found, err := store.readIdentity(ctx, identityKey, acceptance.Fingerprint)
+	if err != nil {
+		return app.StoreOutcome{}, err
+	}
+	if found {
+		return existingOutcome, nil
 	}
 
 	transactionPayload, err := json.Marshal(acceptance.Transaction)
@@ -79,76 +80,125 @@ func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.
 		}}},
 	}})
 	if err != nil {
+		var raced *types.TransactionCanceledException
+		if errors.As(err, &raced) {
+			outcome, found, readErr := store.readIdentity(ctx, identityKey, acceptance.Fingerprint)
+			if readErr != nil {
+				return app.StoreOutcome{}, readErr
+			}
+			if found {
+				return outcome, nil
+			}
+		}
 		return app.StoreOutcome{}, fmt.Errorf("transact transaction and outbox: %w", err)
 	}
 	return app.StoreOutcome{Kind: app.StoreAccepted, EventID: acceptance.Event.ID}, nil
+}
+
+func (store *Store) readIdentity(ctx context.Context, identityKey, fingerprint string) (app.StoreOutcome, bool, error) {
+	existing, err := store.client.GetItem(ctx, &awssdk.GetItemInput{
+		TableName: aws.String(store.table), ConsistentRead: aws.Bool(true),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: identityKey},
+			"sk": &types.AttributeValueMemberS{Value: "TRANSACTION"},
+		},
+	})
+	if err != nil {
+		return app.StoreOutcome{}, false, fmt.Errorf("read transaction identity: %w", err)
+	}
+	if len(existing.Item) > 0 {
+		storedFingerprint, fingerprintOK := existing.Item["fingerprint"].(*types.AttributeValueMemberS)
+		eventID, eventOK := existing.Item["event_id"].(*types.AttributeValueMemberS)
+		if !fingerprintOK || !eventOK {
+			return app.StoreOutcome{}, false, fmt.Errorf("stored transaction identity is malformed")
+		}
+		if storedFingerprint.Value == fingerprint {
+			return app.StoreOutcome{Kind: app.StoreReplay, EventID: eventID.Value}, true, nil
+		}
+		return app.StoreOutcome{Kind: app.StoreConflict}, true, nil
+	}
+	return app.StoreOutcome{}, false, nil
 }
 
 func (store *Store) ClaimPending(ctx context.Context, now time.Time, lease time.Duration, limit int) ([]app.PendingEvent, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	result, err := store.client.Query(ctx, &awssdk.QueryInput{
-		TableName:              aws.String(store.table),
-		IndexName:              aws.String("outbox-dispatch"),
-		KeyConditionExpression: aws.String("dispatch_pk = :pending"),
-		FilterExpression:       aws.String("#status = :status AND (attribute_not_exists(retry_at) OR retry_at <= :now) AND (attribute_not_exists(lease_until) OR lease_until <= :now)"),
-		ExpressionAttributeNames: map[string]string{
-			"#status": "status",
-		},
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pending": &types.AttributeValueMemberS{Value: "OUTBOX#PENDING"},
-			":status":  &types.AttributeValueMemberS{Value: "pending"},
-			":now":     &types.AttributeValueMemberS{Value: timestamp(now)},
-		},
-		Limit: aws.Int32(int32(limit)),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("query pending outbox events: %w", err)
-	}
-
-	claimed := make([]app.PendingEvent, 0, len(result.Items))
-	for _, item := range result.Items {
-		pk, ok := item["pk"].(*types.AttributeValueMemberS)
-		if !ok {
-			return nil, fmt.Errorf("pending outbox event has malformed key")
-		}
-		_, err := store.client.UpdateItem(ctx, &awssdk.UpdateItemInput{
-			TableName: aws.String(store.table),
-			Key: map[string]types.AttributeValue{
-				"pk": &types.AttributeValueMemberS{Value: pk.Value},
-				"sk": &types.AttributeValueMemberS{Value: "OUTBOX"},
-			},
-			ConditionExpression: aws.String("#status = :pending AND (attribute_not_exists(lease_until) OR lease_until <= :now)"),
-			UpdateExpression:    aws.String("SET lease_until = :lease_until"),
+	claimed := make([]app.PendingEvent, 0, limit)
+	var cursor map[string]types.AttributeValue
+	for len(claimed) < limit {
+		result, err := store.client.Query(ctx, &awssdk.QueryInput{
+			TableName:              aws.String(store.table),
+			IndexName:              aws.String("outbox-dispatch"),
+			KeyConditionExpression: aws.String("dispatch_pk = :pending"),
+			FilterExpression:       aws.String("#status = :status AND (attribute_not_exists(retry_at) OR retry_at <= :now) AND (attribute_not_exists(lease_until) OR lease_until <= :now)"),
 			ExpressionAttributeNames: map[string]string{
 				"#status": "status",
 			},
 			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":pending":     &types.AttributeValueMemberS{Value: "pending"},
-				":now":         &types.AttributeValueMemberS{Value: timestamp(now)},
-				":lease_until": &types.AttributeValueMemberS{Value: timestamp(now.Add(lease))},
+				":pending": &types.AttributeValueMemberS{Value: "OUTBOX#PENDING"},
+				":status":  &types.AttributeValueMemberS{Value: "pending"},
+				":now":     &types.AttributeValueMemberS{Value: timestamp(now)},
 			},
+			ExclusiveStartKey: cursor,
+			Limit:             aws.Int32(int32(limit - len(claimed))),
 		})
 		if err != nil {
-			var raced *types.ConditionalCheckFailedException
-			if errors.As(err, &raced) {
-				continue
+			return nil, fmt.Errorf("query pending outbox events: %w", err)
+		}
+
+		for _, item := range result.Items {
+			pk, ok := item["pk"].(*types.AttributeValueMemberS)
+			if !ok {
+				return nil, fmt.Errorf("pending outbox event has malformed key")
 			}
-			return nil, fmt.Errorf("lease outbox event %q: %w", pk.Value, err)
+			claimToken := rand.Text()
+			_, err := store.client.UpdateItem(ctx, &awssdk.UpdateItemInput{
+				TableName: aws.String(store.table),
+				Key: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: pk.Value},
+					"sk": &types.AttributeValueMemberS{Value: "OUTBOX"},
+				},
+				ConditionExpression: aws.String("#status = :pending AND (attribute_not_exists(retry_at) OR retry_at <= :now) AND (attribute_not_exists(lease_until) OR lease_until <= :now)"),
+				UpdateExpression:    aws.String("SET lease_until = :lease_until, claim_token = :claim_token"),
+				ExpressionAttributeNames: map[string]string{
+					"#status": "status",
+				},
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":pending":     &types.AttributeValueMemberS{Value: "pending"},
+					":now":         &types.AttributeValueMemberS{Value: timestamp(now)},
+					":lease_until": &types.AttributeValueMemberS{Value: timestamp(now.Add(lease))},
+					":claim_token": &types.AttributeValueMemberS{Value: claimToken},
+				},
+			})
+			if err != nil {
+				var raced *types.ConditionalCheckFailedException
+				if errors.As(err, &raced) {
+					continue
+				}
+				return nil, fmt.Errorf("lease outbox event %q: %w", pk.Value, err)
+			}
+			pending, err := decodePending(item)
+			if err != nil {
+				return nil, err
+			}
+			pending.ClaimToken = claimToken
+			claimed = append(claimed, pending)
+			if len(claimed) == limit {
+				break
+			}
 		}
-		pending, err := decodePending(item)
-		if err != nil {
-			return nil, err
+		if len(result.LastEvaluatedKey) == 0 || len(claimed) == limit {
+			break
 		}
-		claimed = append(claimed, pending)
+		cursor = result.LastEvaluatedKey
 	}
 	return claimed, nil
 }
 
-func (store *Store) MarkPublished(ctx context.Context, eventID string, at time.Time) error {
-	return store.updateOutcome(ctx, eventID,
-		"SET #status = :published, published_at = :published_at REMOVE lease_until, retry_at, dispatch_pk, dispatch_sk",
+func (store *Store) MarkPublished(ctx context.Context, eventID, claimToken string, at time.Time) error {
+	return store.updateOutcome(ctx, eventID, claimToken,
+		"SET #status = :published, published_at = :published_at REMOVE lease_until, claim_token, retry_at, dispatch_pk, dispatch_sk",
 		map[string]types.AttributeValue{
 			":published":    &types.AttributeValueMemberS{Value: "published"},
 			":published_at": &types.AttributeValueMemberS{Value: timestamp(at)},
@@ -162,28 +212,34 @@ func (store *Store) RecordFailure(ctx context.Context, failure app.PublishFailur
 	}
 	if failure.Terminal {
 		values[":failed"] = &types.AttributeValueMemberS{Value: "failed"}
-		return store.updateOutcome(ctx, failure.EventID,
-			"SET #status = :failed, attempts = :attempts, last_error = :reason REMOVE lease_until, retry_at, dispatch_pk, dispatch_sk", values)
+		return store.updateOutcome(ctx, failure.EventID, failure.ClaimToken,
+			"SET #status = :failed, attempts = :attempts, last_error = :reason REMOVE lease_until, claim_token, retry_at, dispatch_pk, dispatch_sk", values)
 	}
 	values[":pending"] = &types.AttributeValueMemberS{Value: "pending"}
 	values[":retry_at"] = &types.AttributeValueMemberS{Value: timestamp(failure.RetryAt)}
-	return store.updateOutcome(ctx, failure.EventID,
-		"SET #status = :pending, attempts = :attempts, retry_at = :retry_at, last_error = :reason REMOVE lease_until", values)
+	return store.updateOutcome(ctx, failure.EventID, failure.ClaimToken,
+		"SET #status = :pending, attempts = :attempts, retry_at = :retry_at, last_error = :reason REMOVE lease_until, claim_token", values)
 }
 
-func (store *Store) updateOutcome(ctx context.Context, eventID, update string, values map[string]types.AttributeValue) error {
+func (store *Store) updateOutcome(ctx context.Context, eventID, claimToken, update string, values map[string]types.AttributeValue) error {
+	values[":pending"] = &types.AttributeValueMemberS{Value: "pending"}
+	values[":claim_token"] = &types.AttributeValueMemberS{Value: claimToken}
 	_, err := store.client.UpdateItem(ctx, &awssdk.UpdateItemInput{
 		TableName: aws.String(store.table),
 		Key: map[string]types.AttributeValue{
 			"pk": &types.AttributeValueMemberS{Value: "EVENT#" + eventID},
 			"sk": &types.AttributeValueMemberS{Value: "OUTBOX"},
 		},
-		ConditionExpression:       aws.String("attribute_exists(pk)"),
+		ConditionExpression:       aws.String("#status = :pending AND claim_token = :claim_token"),
 		UpdateExpression:          aws.String(update),
 		ExpressionAttributeNames:  map[string]string{"#status": "status"},
 		ExpressionAttributeValues: values,
 	})
 	if err != nil {
+		var lost *types.ConditionalCheckFailedException
+		if errors.As(err, &lost) {
+			return fmt.Errorf("update outbox event %q: %w", eventID, app.ErrLeaseLost)
+		}
 		return fmt.Errorf("update outbox event %q: %w", eventID, err)
 	}
 	return nil

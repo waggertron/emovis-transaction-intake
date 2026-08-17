@@ -3,6 +3,7 @@ package component_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -93,6 +94,7 @@ func TestDynamoDBLocalSatisfiesTransactionStoreContract(t *testing.T) {
 	runTransactionStoreContract(t, factory)
 	concurrent := factory(t)
 	runConcurrentLeaseContract(t, concurrent, contractAcceptance("evt-dynamo-concurrent"))
+	runConcurrentAcceptanceContract(t, factory(t))
 	unavailable := awssdk.New(awssdk.Options{
 		Region: "us-west-2", BaseEndpoint: aws.String("http://127.0.0.1:1"), RetryMaxAttempts: 1,
 		HTTPClient: &http.Client{Timeout: 500 * time.Millisecond},
@@ -181,6 +183,7 @@ func TestPostgresSatisfiesTransactionStoreContract(t *testing.T) {
 	}
 	concurrent := factory(t)
 	runConcurrentLeaseContract(t, concurrent, contractAcceptance("evt-postgres-concurrent"))
+	runConcurrentAcceptanceContract(t, factory(t))
 	unavailable, err := sql.Open("pgx", "postgres://transaction_test:local-component-only@127.0.0.1:1/transactions?sslmode=disable&connect_timeout=1")
 	if err != nil {
 		t.Fatalf("open unavailable PostgreSQL client: %v", err)
@@ -226,6 +229,41 @@ func runConcurrentLeaseContract(t *testing.T, store app.TransactionStore, accept
 	}
 }
 
+func runConcurrentAcceptanceContract(t *testing.T, store app.TransactionStore) {
+	t.Helper()
+	acceptance := contractAcceptance("evt-concurrent-accept")
+	start := make(chan struct{})
+	results := make(chan app.StoreOutcome, 2)
+	errorsCh := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			result, err := store.Accept(context.Background(), acceptance)
+			results <- result
+			errorsCh <- err
+		}()
+	}
+	close(start)
+	accepted, replayed := 0, 0
+	for range 2 {
+		result, err := <-results, <-errorsCh
+		if err != nil {
+			t.Fatalf("concurrent identical acceptance: %v", err)
+		}
+		switch result.Kind {
+		case app.StoreAccepted:
+			accepted++
+		case app.StoreReplay:
+			replayed++
+		default:
+			t.Fatalf("unexpected concurrent outcome: %#v", result)
+		}
+	}
+	if accepted != 1 || replayed != 1 {
+		t.Fatalf("expected one accept and one replay, got accepted=%d replayed=%d", accepted, replayed)
+	}
+}
+
 func runTransactionStoreContract(t *testing.T, factory storeFactory) {
 	t.Helper()
 	ctx := context.Background()
@@ -253,6 +291,7 @@ func runTransactionStoreContract(t *testing.T, factory storeFactory) {
 	if err != nil || len(claimed) != 1 || claimed[0].Event.ID != accepted.Event.ID || claimed[0].Attempts != 0 {
 		t.Fatalf("first claim: %#v, %v", claimed, err)
 	}
+	firstClaim := claimed[0]
 	claimed, err = store.ClaimPending(ctx, now.Add(time.Second), 30*time.Second, 1)
 	if err != nil || len(claimed) != 0 {
 		t.Fatalf("active lease reclaimed: %#v, %v", claimed, err)
@@ -261,9 +300,15 @@ func runTransactionStoreContract(t *testing.T, factory storeFactory) {
 	if err != nil || len(claimed) != 1 {
 		t.Fatalf("expired lease unavailable: %#v, %v", claimed, err)
 	}
+	if err := store.MarkPublished(ctx, accepted.Event.ID, firstClaim.ClaimToken, now.Add(31*time.Second)); !errors.Is(err, app.ErrLeaseLost) {
+		t.Fatalf("stale publication should lose lease: %v", err)
+	}
+	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: accepted.Event.ID, ClaimToken: firstClaim.ClaimToken, Attempts: 1}); !errors.Is(err, app.ErrLeaseLost) {
+		t.Fatalf("stale failure should lose lease: %v", err)
+	}
 
 	retryAt := now.Add(time.Minute)
-	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: accepted.Event.ID, Attempts: 1, RetryAt: retryAt, Reason: "publish_failed"}); err != nil {
+	if err := store.RecordFailure(ctx, app.PublishFailure{EventID: accepted.Event.ID, ClaimToken: claimed[0].ClaimToken, Attempts: 1, RetryAt: retryAt, Reason: "publish_failed"}); err != nil {
 		t.Fatalf("record retry: %v", err)
 	}
 	claimed, _ = store.ClaimPending(ctx, retryAt.Add(-time.Nanosecond), 30*time.Second, 1)
@@ -274,7 +319,7 @@ func runTransactionStoreContract(t *testing.T, factory storeFactory) {
 	if err != nil || len(claimed) != 1 || claimed[0].Attempts != 1 {
 		t.Fatalf("retry claim: %#v, %v", claimed, err)
 	}
-	if err := store.MarkPublished(ctx, accepted.Event.ID, retryAt); err != nil {
+	if err := store.MarkPublished(ctx, accepted.Event.ID, claimed[0].ClaimToken, retryAt); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	claimed, _ = store.ClaimPending(ctx, retryAt.Add(time.Hour), 30*time.Second, 1)
@@ -289,7 +334,11 @@ func runTransactionStoreContract(t *testing.T, factory storeFactory) {
 	if _, err := terminalStore.Accept(ctx, terminal); err != nil {
 		t.Fatalf("accept terminal: %v", err)
 	}
-	if err := terminalStore.RecordFailure(ctx, app.PublishFailure{EventID: terminal.Event.ID, Attempts: 5, Terminal: true, Reason: "publish_failed"}); err != nil {
+	terminalClaim, err := terminalStore.ClaimPending(ctx, now, 30*time.Second, 1)
+	if err != nil || len(terminalClaim) != 1 {
+		t.Fatalf("claim terminal: %#v, %v", terminalClaim, err)
+	}
+	if err := terminalStore.RecordFailure(ctx, app.PublishFailure{EventID: terminal.Event.ID, ClaimToken: terminalClaim[0].ClaimToken, Attempts: 5, Terminal: true, Reason: "publish_failed"}); err != nil {
 		t.Fatalf("record terminal: %v", err)
 	}
 	claimed, _ = terminalStore.ClaimPending(ctx, now.Add(time.Hour), 30*time.Second, 1)

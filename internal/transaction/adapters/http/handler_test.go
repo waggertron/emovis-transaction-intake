@@ -45,6 +45,7 @@ func TestPostTransactionAccepted(t *testing.T) {
 	intake := &fakeIntake{result: app.AcceptResult{Kind: app.Accepted, TransactionID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", EventID: "evt-1"}}
 	request := httptest.NewRequest(http.MethodPost, "/v1/transactions", strings.NewReader(validJSON()))
 	request.Header.Set("X-API-Key", "test-key")
+	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Request-ID", "req-client")
 	recorder := httptest.NewRecorder()
 
@@ -67,6 +68,7 @@ func TestPostTransactionReplay(t *testing.T) {
 	intake := &fakeIntake{result: app.AcceptResult{Kind: app.Replayed, TransactionID: "tx", EventID: "evt-original"}}
 	request := httptest.NewRequest(http.MethodPost, "/v1/transactions", strings.NewReader(validJSON()))
 	request.Header.Set("X-API-Key", "test-key")
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 
 	testHandler(intake, func() bool { return true }).ServeHTTP(recorder, request)
@@ -102,6 +104,7 @@ func TestPostTransactionErrors(t *testing.T) {
 			intake := &fakeIntake{err: test.serviceErr}
 			request := httptest.NewRequest(http.MethodPost, "/v1/transactions", strings.NewReader(test.body))
 			request.Header.Set("X-API-Key", test.key)
+			request.Header.Set("Content-Type", "application/json")
 			recorder := httptest.NewRecorder()
 			testHandler(intake, func() bool { return true }).ServeHTTP(recorder, request)
 			if recorder.Code != test.wantStatus {
@@ -124,6 +127,19 @@ func TestPostTransactionErrors(t *testing.T) {
 				t.Fatalf("error body does not satisfy OpenAPI Error schema: %#v err=%v", response, err)
 			}
 		})
+	}
+}
+
+func TestPostTransactionRejectsUnsupportedMediaType(t *testing.T) {
+	t.Parallel()
+	intake := &fakeIntake{}
+	request := httptest.NewRequest(http.MethodPost, "/v1/transactions", strings.NewReader(validJSON()))
+	request.Header.Set("X-API-Key", "test-key")
+	request.Header.Set("Content-Type", "text/plain")
+	recorder := httptest.NewRecorder()
+	testHandler(intake, func() bool { return true }).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnsupportedMediaType || intake.calls != 0 {
+		t.Fatalf("unsupported media type: status=%d calls=%d", recorder.Code, intake.calls)
 	}
 }
 
@@ -170,6 +186,7 @@ func TestReadinessReadyAndRequestConversionFailures(t *testing.T) {
 	} {
 		request = httptest.NewRequest(http.MethodPost, "/v1/transactions", strings.NewReader(body))
 		request.Header.Set("X-API-Key", "test-key")
+		request.Header.Set("Content-Type", "application/json")
 		recorder = httptest.NewRecorder()
 		handler.ServeHTTP(recorder, request)
 		if recorder.Code != http.StatusUnprocessableEntity && recorder.Code != http.StatusBadRequest {

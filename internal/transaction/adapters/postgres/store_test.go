@@ -16,6 +16,11 @@ import (
 	"github.com/waggertron/emovis-transaction-intake/internal/transaction/domain"
 )
 
+type fakeSQLStateError string
+
+func (err fakeSQLStateError) Error() string    { return string(err) }
+func (err fakeSQLStateError) SQLState() string { return "23505" }
+
 func postgresAcceptance() app.Acceptance {
 	transaction := domain.Transaction{
 		ID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", PartnerID: "partner-west",
@@ -109,6 +114,81 @@ func TestStoreRollsBackWhenOutboxInsertFails(t *testing.T) {
 	}
 }
 
+func TestStoreReclassifiesConcurrentUniqueRaceAsReplay(t *testing.T) {
+	t.Parallel()
+
+	database, mock, _ := sqlmock.New()
+	defer database.Close()
+	acceptance := postgresAcceptance()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(selectIdentitySQL)).WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec(regexp.QuoteMeta(insertTransactionSQL)).WillReturnError(fakeSQLStateError("duplicate identity"))
+	mock.ExpectRollback()
+	mock.ExpectQuery(regexp.QuoteMeta(readIdentitySQL)).WithArgs(acceptance.Transaction.PartnerID, acceptance.Transaction.ID).
+		WillReturnRows(sqlmock.NewRows([]string{"fingerprint", "event_id"}).AddRow(acceptance.Fingerprint, "evt-winner"))
+
+	result, err := NewStore(database).Accept(context.Background(), acceptance)
+	if err != nil || result.Kind != app.StoreReplay || result.EventID != "evt-winner" {
+		t.Fatalf("unique race was not reclassified: %#v, %v", result, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStoreConcurrencyClassificationConflictAndFailure(t *testing.T) {
+	t.Parallel()
+	acceptance := postgresAcceptance()
+	for _, test := range []struct {
+		name        string
+		fingerprint string
+		queryErr    error
+		wantKind    app.StoreOutcomeKind
+	}{
+		{name: "conflict", fingerprint: "different", wantKind: app.StoreConflict},
+		{name: "reread failure", queryErr: errors.New("read unavailable")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			database, mock, _ := sqlmock.New()
+			defer database.Close()
+			mock.ExpectBegin()
+			mock.ExpectQuery(regexp.QuoteMeta(selectIdentitySQL)).WillReturnError(sql.ErrNoRows)
+			mock.ExpectExec(regexp.QuoteMeta(insertTransactionSQL)).WillReturnError(fakeSQLStateError("duplicate identity"))
+			mock.ExpectRollback()
+			query := mock.ExpectQuery(regexp.QuoteMeta(readIdentitySQL)).WithArgs(acceptance.Transaction.PartnerID, acceptance.Transaction.ID)
+			if test.queryErr != nil {
+				query.WillReturnError(test.queryErr)
+			} else {
+				query.WillReturnRows(sqlmock.NewRows([]string{"fingerprint", "event_id"}).AddRow(test.fingerprint, "evt-winner"))
+			}
+			result, err := NewStore(database).Accept(context.Background(), acceptance)
+			if test.queryErr != nil && err == nil {
+				t.Fatal("expected classification read failure")
+			}
+			if test.queryErr == nil && (err != nil || result.Kind != test.wantKind) {
+				t.Fatalf("classification result: %#v, %v", result, err)
+			}
+		})
+	}
+	if isConcurrencyConflict(errors.New("ordinary")) {
+		t.Fatal("ordinary errors must not be concurrency conflicts")
+	}
+}
+
+func TestStoreReadinessPingsDatabase(t *testing.T) {
+	t.Parallel()
+	database, mock, _ := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	defer database.Close()
+	mock.ExpectPing()
+	if err := NewStore(database).Ready(context.Background()); err != nil {
+		t.Fatalf("ready: %v", err)
+	}
+	mock.ExpectPing().WillReturnError(errors.New("unavailable"))
+	if err := NewStore(database).Ready(context.Background()); err == nil {
+		t.Fatal("expected readiness failure")
+	}
+}
+
 func TestStoreClaimsOutboxWithSkipLockedLease(t *testing.T) {
 	t.Parallel()
 
@@ -116,8 +196,8 @@ func TestStoreClaimsOutboxWithSkipLockedLease(t *testing.T) {
 	defer database.Close()
 	now := time.Date(2026, 8, 16, 23, 0, 0, 0, time.UTC)
 	payload, _ := json.Marshal(postgresAcceptance().Event)
-	mock.ExpectQuery(regexp.QuoteMeta(claimPendingSQL)).WithArgs(now, 10, now.Add(30*time.Second)).
-		WillReturnRows(sqlmock.NewRows([]string{"event_payload", "attempts"}).AddRow(payload, 2))
+	mock.ExpectQuery(regexp.QuoteMeta(claimPendingSQL)).WithArgs(now, 10, now.Add(30*time.Second), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"event_payload", "attempts", "claim_token"}).AddRow(payload, 2, "claim-1"))
 	events, err := NewStore(database).ClaimPending(context.Background(), now, 30*time.Second, 10)
 	if err != nil || len(events) != 1 || events[0].Event.ID != "evt-1" || events[0].Attempts != 2 {
 		t.Fatalf("unexpected claim %#v, %v", events, err)
@@ -133,19 +213,19 @@ func TestStoreRecordsPublishedAndFailedOutcomes(t *testing.T) {
 	database, mock, _ := sqlmock.New()
 	defer database.Close()
 	now := time.Date(2026, 8, 16, 23, 0, 0, 0, time.UTC)
-	mock.ExpectExec(regexp.QuoteMeta(markPublishedSQL)).WithArgs(now, "evt-1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(markPublishedSQL)).WithArgs(now, "evt-1", "claim-1").WillReturnResult(sqlmock.NewResult(0, 1))
 	store := NewStore(database)
-	if err := store.MarkPublished(context.Background(), "evt-1", now); err != nil {
+	if err := store.MarkPublished(context.Background(), "evt-1", "claim-1", now); err != nil {
 		t.Fatalf("mark published: %v", err)
 	}
-	failure := app.PublishFailure{EventID: "evt-2", Attempts: 3, RetryAt: now.Add(time.Minute), Reason: "publish_failed"}
-	mock.ExpectExec(regexp.QuoteMeta(recordFailureSQL)).WithArgs("pending", failure.Attempts, failure.RetryAt, failure.Reason, failure.EventID).
+	failure := app.PublishFailure{EventID: "evt-2", ClaimToken: "claim-2", Attempts: 3, RetryAt: now.Add(time.Minute), Reason: "publish_failed"}
+	mock.ExpectExec(regexp.QuoteMeta(recordFailureSQL)).WithArgs("pending", failure.Attempts, failure.RetryAt, failure.Reason, failure.EventID, failure.ClaimToken).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := store.RecordFailure(context.Background(), failure); err != nil {
 		t.Fatalf("record failure: %v", err)
 	}
-	terminal := app.PublishFailure{EventID: "evt-3", Attempts: 5, Terminal: true, Reason: "publish_failed"}
-	mock.ExpectExec(regexp.QuoteMeta(recordFailureSQL)).WithArgs("failed", terminal.Attempts, terminal.RetryAt, terminal.Reason, terminal.EventID).
+	terminal := app.PublishFailure{EventID: "evt-3", ClaimToken: "claim-3", Attempts: 5, Terminal: true, Reason: "publish_failed"}
+	mock.ExpectExec(regexp.QuoteMeta(recordFailureSQL)).WithArgs("failed", terminal.Attempts, terminal.RetryAt, terminal.Reason, terminal.EventID, terminal.ClaimToken).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := store.RecordFailure(context.Background(), terminal); err != nil {
 		t.Fatalf("record terminal failure: %v", err)
@@ -165,7 +245,7 @@ func TestSchemaDefinesAtomicIdentityAndOutboxLeaseState(t *testing.T) {
 	schema := string(payload)
 	for _, required := range []string{
 		"PRIMARY KEY (partner_id, transaction_id)", "payload JSONB", "event_payload JSONB",
-		"lease_until TIMESTAMPTZ", "retry_at TIMESTAMPTZ", "CREATE INDEX IF NOT EXISTS outbox_dispatch_idx",
+		"lease_until TIMESTAMPTZ", "claim_token TEXT", "ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS claim_token TEXT", "retry_at TIMESTAMPTZ", "CREATE INDEX IF NOT EXISTS outbox_dispatch_idx",
 	} {
 		if !strings.Contains(schema, required) {
 			t.Fatalf("schema missing %q", required)
@@ -202,7 +282,7 @@ func TestStorePropagatesTransactionAndQueryFailures(t *testing.T) {
 	database.Close()
 
 	database, mock, _ = sqlmock.New()
-	mock.ExpectQuery(regexp.QuoteMeta(claimPendingSQL)).WillReturnRows(sqlmock.NewRows([]string{"event_payload", "attempts"}).AddRow("bad-json", 0))
+	mock.ExpectQuery(regexp.QuoteMeta(claimPendingSQL)).WillReturnRows(sqlmock.NewRows([]string{"event_payload", "attempts", "claim_token"}).AddRow("bad-json", 0, "claim"))
 	if _, err := NewStore(database).ClaimPending(context.Background(), time.Now(), time.Second, 1); err == nil {
 		t.Fatal("expected payload decode failure")
 	}
@@ -215,11 +295,11 @@ func TestStorePropagatesOutcomeAndAffectedRowFailures(t *testing.T) {
 	database, mock, _ := sqlmock.New()
 	store := NewStore(database)
 	mock.ExpectExec(regexp.QuoteMeta(markPublishedSQL)).WillReturnError(want)
-	if err := store.MarkPublished(context.Background(), "evt", time.Now()); !errors.Is(err, want) {
+	if err := store.MarkPublished(context.Background(), "evt", "claim", time.Now()); !errors.Is(err, want) {
 		t.Fatalf("publish: %v", err)
 	}
 	mock.ExpectExec(regexp.QuoteMeta(markPublishedSQL)).WillReturnResult(sqlmock.NewResult(0, 0))
-	if err := store.MarkPublished(context.Background(), "missing", time.Now()); err == nil {
+	if err := store.MarkPublished(context.Background(), "missing", "claim", time.Now()); err == nil {
 		t.Fatal("expected missing event")
 	}
 	mock.ExpectExec(regexp.QuoteMeta(recordFailureSQL)).WillReturnError(want)
@@ -227,7 +307,7 @@ func TestStorePropagatesOutcomeAndAffectedRowFailures(t *testing.T) {
 		t.Fatalf("failure: %v", err)
 	}
 	mock.ExpectExec(regexp.QuoteMeta(markPublishedSQL)).WillReturnResult(sqlmock.NewErrorResult(want))
-	if err := store.MarkPublished(context.Background(), "evt", time.Now()); !errors.Is(err, want) {
+	if err := store.MarkPublished(context.Background(), "evt", "claim", time.Now()); !errors.Is(err, want) {
 		t.Fatalf("rows affected: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

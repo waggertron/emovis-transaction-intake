@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"regexp"
 	"time"
@@ -57,6 +58,11 @@ func (handler *handler) transactions(response http.ResponseWriter, request *http
 	partnerID, ok := handler.auth.Authenticate(request.Header.Get("X-API-Key"))
 	if !ok {
 		writeError(response, http.StatusUnauthorized, "unauthorized", "invalid API key", requestID)
+		return
+	}
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeError(response, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", requestID)
 		return
 	}
 	if request.ContentLength > MaxRequestBodyBytes {

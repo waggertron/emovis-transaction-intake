@@ -18,6 +18,20 @@ variable "local_validation" {
   type    = bool
   default = true
 }
+variable "storage_backend" {
+  type        = string
+  description = "Explicit persistence selection; no backend is selected implicitly"
+
+  validation {
+    condition     = contains(["dynamodb", "postgres"], var.storage_backend)
+    error_message = "storage_backend must explicitly be dynamodb or postgres"
+  }
+}
+variable "runtime_secrets_ready" {
+  type        = bool
+  default     = false
+  description = "Operator confirmation that externally populated API and MSK SCRAM secret values are ready for association and topic bootstrap"
+}
 variable "environment" {
   type    = string
   default = "nonprod"
