@@ -1,0 +1,203 @@
+openapi: 3.1.0
+info:
+  title: Transaction Intake API — Mocked contract
+  version: 1.0.0
+  description: >-
+    Mocked contract created for this assignment because the referenced source OpenAPI
+    document was not included in the supplied files.
+servers:
+  - url: http://localhost:8080
+    description: Local Docker Compose
+paths:
+  /v1/transactions:
+    post:
+      operationId: acceptTransaction
+      summary: Accept one billable tolling transaction
+      security:
+        - apiKey: []
+      parameters:
+        - name: X-Request-ID
+          in: header
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Transaction'
+            example:
+              transactionId: 018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01
+              occurredAt: '2026-08-16T20:30:00Z'
+              amountMinor: 725
+              currency: USD
+              agencyId: agency-17
+              plazaId: plaza-4
+              laneId: lane-2
+              vehicleClass: CAR
+      responses:
+        '200':
+          description: Identical idempotent replay
+          headers:
+            Idempotent-Replay:
+              schema:
+                type: string
+                const: 'true'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Acceptance'
+        '201':
+          description: Newly accepted transaction and pending outbox event
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Acceptance'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /healthz:
+    get:
+      operationId: health
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /readyz:
+    get:
+      operationId: readiness
+      responses:
+        '200':
+          description: Process is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '503':
+          description: Process is not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /metrics:
+    get:
+      operationId: metrics
+      responses:
+        '200':
+          description: Prometheus text exposition
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  headers:
+    RequestID:
+      schema:
+        type: string
+  schemas:
+    Transaction:
+      type: object
+      additionalProperties: false
+      required: [transactionId, occurredAt, amountMinor, currency, agencyId, plazaId, laneId, vehicleClass]
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+        amountMinor:
+          type: integer
+          format: int64
+          minimum: 1
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+        agencyId:
+          $ref: '#/components/schemas/Identifier'
+        plazaId:
+          $ref: '#/components/schemas/Identifier'
+        laneId:
+          $ref: '#/components/schemas/Identifier'
+        vehicleClass:
+          type: string
+          enum: [CAR, MOTORCYCLE, TRUCK, BUS]
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$'
+    Acceptance:
+      type: object
+      required: [transactionId, eventId, status]
+      properties:
+        transactionId:
+          type: string
+        eventId:
+          type: string
+        status:
+          type: string
+          enum: [accepted, replayed]
+    Status:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+    Error:
+      type: object
+      required: [error, requestId]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+        requestId:
+          type: string
+  responses:
+    BadRequest:
+      description: Malformed or ambiguous JSON
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Unauthorized:
+      description: Missing or invalid API key
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Conflict:
+      description: Transaction identity already exists with different content
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    TooLarge:
+      description: Request body exceeds 64 KiB
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Unprocessable:
+      description: Transaction violates semantic validation
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Unavailable:
+      description: A required service dependency is unavailable
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}

@@ -1,0 +1,45 @@
+# Repository Instructions
+
+## Purpose
+Define repository-wide rules for the transaction intake service.
+
+## Scope
+Applies everywhere unless a nearer `AGENTS.md` is stricter.
+
+## Local rules
+- Write and run focused failing tests before production code.
+- Record material decisions in the current plan.
+- Keep the core independent of transports and infrastructure.
+- Use Make targets for supported workflows and never commit secrets.
+
+## Usage
+Read this file and the nearest child instructions before changing files.
+
+## Validation
+Run the hierarchy validator, focused tests, and repository validation target.
+
+## Elements
+| Element | Behavior |
+| --- | --- |
+| `.codex` | Contains repository-local Codex skills. |
+| `.dockerignore` | Excludes VCS, local build, test, and runtime artifacts from image contexts. |
+| `.gitignore` | Excludes local build, test, and runtime artifacts. |
+| `Dockerfile` | Builds reproducible non-root images for each executable mode. |
+| `Makefile` | Provides the canonical strict developer and CI command interface. |
+| `api` | Contains the explicitly mocked OpenAPI contract. |
+| `cmd` | Contains executable composition roots. |
+| `compose.yaml` | Runs the complete local Kafka and transaction-intake system. |
+| `docs` | Contains plans, requirements, and architecture. |
+| `go.mod` | Declares the Go module and supported language version. |
+| `go.sum` | Locks authenticated checksums for Go dependencies. |
+| `internal` | Contains non-exported domain, application, adapter, and bootstrap code. |
+| `tests` | Contains repository-level command, contract, integration, and smoke checks. |
+
+## Instruction hierarchy
+- Parent: none.
+- Child: [.codex/AGENTS.md](.codex/AGENTS.md).
+- Child: [api/AGENTS.md](api/AGENTS.md).
+- Child: [cmd/AGENTS.md](cmd/AGENTS.md).
+- Child: [docs/AGENTS.md](docs/AGENTS.md).
+- Child: [internal/AGENTS.md](internal/AGENTS.md).
+- Child: [tests/AGENTS.md](tests/AGENTS.md).

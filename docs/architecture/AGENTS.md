@@ -33,5 +33,5 @@ Read this directory before adding a service boundary, storage adapter, Kafka wor
 
 ## Instruction hierarchy
 
-- Parent: none currently; add a relative link to `docs/AGENTS.md` when that parent instruction file is created.
+- Parent: [../AGENTS.md](../AGENTS.md).
 - Children: none currently.

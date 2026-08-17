@@ -1,0 +1,6 @@
+.git
+.local
+tmp
+coverage
+.env
+*.out

@@ -1,0 +1,5 @@
+.local/
+tmp/
+coverage/
+*.out
+.env
