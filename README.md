@@ -11,7 +11,7 @@ curl --fail http://127.0.0.1:8080/healthz
 
 Then follow the request example below. The local API key is intentionally the visible test value `local-development-only-key`; there is no key-generation step for local work. When you are done, run `make compose-down`.
 
-The original OpenAPI file was not supplied, so this repository uses an explicitly labeled [mock contract](api/openapi.yaml). Treat that contract as the starting point for team review, not as the final production agreement.
+The inbound contract is the supplied [OpenAPI 3.0.3 specification](api/openapi.yaml).
 
 ## Run it locally
 
@@ -23,25 +23,24 @@ curl --fail http://127.0.0.1:8080/healthz
 curl --fail http://127.0.0.1:8080/readyz
 ```
 
-The local stack starts Kafka, creates the topic, and starts the API plus worker. For local requests, send only the API key:
+The local stack starts Kafka, creates the topic, and starts the API plus worker. Local authentication is disabled by default; no API key is required.
 
 ```text
 X-API-Key: local-development-only-key
 ```
 
-You do not send a `partnerId` in the request. The service maps this local key to the partner `local-partner`. There is no API-key service to call. This key is only for local development and tests; never deploy it.
+Set `AUTH_MODE=api_key` only when you explicitly want API-key enforcement. Production credentials are delivered outside Git.
 
 Send a transaction:
 
 ```bash
 curl --fail-with-body \
   -H 'Content-Type: application/json' \
-  -H 'X-API-Key: local-development-only-key' \
-  --data '{"transactionId":"018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01","occurredAt":"2026-08-16T20:30:00Z","amountMinor":725,"currency":"USD","agencyId":"agency-17","plazaId":"plaza-4","laneId":"lane-2","vehicleClass":"CAR"}' \
-  http://127.0.0.1:8080/v1/transactions
+  --data '{"source":"local","source_reference":"demo-0001","transaction_type":"toll","transaction_time_utc":"2026-08-16T20:30:00Z","base_amount":"7.25","transponder_number":"0180012345678"}' \
+  http://127.0.0.1:8080/ingest/v1/transactions
 ```
 
-The first request returns `201`. An identical retry returns `200` with `Idempotent-Replay: true`; the same partner/transaction identity with changed content returns `409`.
+The first request returns `201`. An identical retry returns `200` with `duplicate=true`; the same source/source-reference identity with changed content returns `400`.
 
 Stop the stack when finished:
 
@@ -90,7 +89,7 @@ The Make run targets load `ENV_FILE` first, defaulting to `.env`, and use `LOCAL
 make run-api ENV_FILE=.env.local
 ```
 
-The Go service recognizes `HTTP_ADDRESS`, `PARTNER_ID`, `API_KEY`, `STORE_DRIVER`, `STORE_PATH`, `POSTGRES_URL`, `DYNAMODB_ENDPOINT`, `AWS_REGION`, `DYNAMODB_TABLE`, `KAFKA_BROKERS`, `KAFKA_TOPIC`, `KAFKA_TLS`, `KAFKA_CA_FILE`, `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD`, `LOCAL_SECRET_FILE`, and `AWS_SECRET_ID`. Topic bootstrap additionally uses `KAFKA_TOPIC_PARTITIONS`, `KAFKA_TOPIC_REPLICATION`, and `KAFKA_TOPIC_RETENTION`. See the example files and [the infrastructure reference](docs/infrastructure/reference.md) for defaults and secret-provider behavior.
+The Go service recognizes `HTTP_ADDRESS`, `PARTNER_ID`, `API_KEY`, `AUTH_MODE`, `TRANSACTION_TYPES`, `DEFAULT_CURRENCY`, `STORE_DRIVER`, `STORE_PATH`, `POSTGRES_URL`, `DYNAMODB_ENDPOINT`, `AWS_REGION`, `DYNAMODB_TABLE`, `KAFKA_BROKERS`, `KAFKA_TOPIC`, `KAFKA_TLS`, `KAFKA_CA_FILE`, `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD`, `LOCAL_SECRET_FILE`, and `AWS_SECRET_ID`. `AUTH_MODE` defaults to `disabled`; set it to `api_key` to enforce the configured partner/API key. `TRANSACTION_TYPES` defaults to `toll`, and `DEFAULT_CURRENCY` defaults to `USD`. Topic bootstrap additionally uses `KAFKA_TOPIC_PARTITIONS`, `KAFKA_TOPIC_REPLICATION`, and `KAFKA_TOPIC_RETENTION`. See the example files and [the infrastructure reference](docs/infrastructure/reference.md) for defaults and secret-provider behavior.
 
 ## Terraform requires a deliberate storage choice
 
@@ -124,7 +123,7 @@ flowchart LR
 
 ```text
 partner / roadside system
-          │ POST /v1/transactions + X-API-Key
+          │ POST /ingest/v1/transactions
           ▼
       HTTP adapter
           │ authenticate, decode, validate
@@ -138,7 +137,7 @@ partner / roadside system
                    Kafka publisher ──► review-candidate topic
 ```
 
-The API authenticates the partner, rejects malformed or unknown JSON fields, validates the billable transaction, and computes a canonical fingerprint. The idempotency boundary is `partnerId:transactionId`. A replay returns the original event ID and does not create another event.
+The API rejects malformed or unknown JSON fields, validates the billable transaction, and computes a canonical fingerprint. The idempotency boundary is `source:source_reference`. A replay returns the original system ID and does not create another event.
 
 ### Dependency direction
 
@@ -160,7 +159,7 @@ Memory storage is concurrency-safe but ephemeral. NDJSON is durable and intended
 
 ### Kafka contract
 
-The default topic is `transaction.review-candidates.v1`. Messages use `partnerId:transactionId` as the key and contain the event ID, schema version, UTC timestamps, partner and transaction identifiers, and the validated toll payload. API keys, authorization headers, SASL credentials, and payment credentials never enter events. Local Kafka is single-node plaintext; the AWS reference uses TLS and SASL/SCRAM through externally populated Secrets Manager values.
+The default topic is `transaction.review-candidates.v1`. Messages use `source:source_reference` as the key and contain the event ID, schema version, UTC timestamps, source identity, and the validated toll payload. API keys, authorization headers, SASL credentials, and payment credentials never enter events. Local Kafka is single-node plaintext; the AWS reference uses TLS and SASL/SCRAM through externally populated Secrets Manager values.
 
 ### Runtime modes
 

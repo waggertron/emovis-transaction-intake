@@ -27,16 +27,21 @@ type Authenticator interface {
 }
 
 type handler struct {
-	intake       Intake
-	auth         Authenticator
-	newRequestID func() string
-	ready        func() bool
+	intake          Intake
+	auth            Authenticator
+	newRequestID    func() string
+	ready           func() bool
+	defaultCurrency string
 }
 
-func NewHandler(intake Intake, auth Authenticator, newRequestID func() string, ready func() bool) http.Handler {
-	handler := &handler{intake: intake, auth: auth, newRequestID: newRequestID, ready: ready}
+func NewHandler(intake Intake, auth Authenticator, newRequestID func() string, ready func() bool, currencies ...string) http.Handler {
+	defaultCurrency := "USD"
+	if len(currencies) > 0 && currencies[0] != "" {
+		defaultCurrency = currencies[0]
+	}
+	handler := &handler{intake: intake, auth: auth, newRequestID: newRequestID, ready: ready, defaultCurrency: defaultCurrency}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/transactions", handler.transactions)
+	mux.HandleFunc("/ingest/v1/transactions", handler.transactions)
 	mux.HandleFunc("/healthz", handler.health)
 	mux.HandleFunc("/readyz", handler.readiness)
 	mux.HandleFunc("/metrics", handler.metrics)
@@ -55,10 +60,14 @@ func (handler *handler) transactions(response http.ResponseWriter, request *http
 		return
 	}
 
-	partnerID, ok := handler.auth.Authenticate(request.Header.Get("X-API-Key"))
-	if !ok {
-		writeError(response, http.StatusUnauthorized, "unauthorized", "invalid API key", requestID)
-		return
+	partnerID := ""
+	if handler.auth != nil {
+		var ok bool
+		partnerID, ok = handler.auth.Authenticate(request.Header.Get("X-API-Key"))
+		if !ok {
+			writeError(response, http.StatusUnauthorized, "unauthorized", "invalid API key", requestID)
+			return
+		}
 	}
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
@@ -90,16 +99,19 @@ func (handler *handler) transactions(response http.ResponseWriter, request *http
 
 	transaction, err := input.toDomain(partnerID)
 	if err != nil {
-		writeError(response, http.StatusUnprocessableEntity, "invalid_transaction", "transaction is invalid", requestID)
+		writeError(response, http.StatusBadRequest, "invalid_transaction", "transaction is invalid", requestID)
 		return
+	}
+	if transaction.Currency == "" {
+		transaction.Currency = handler.defaultCurrency
 	}
 	result, err := handler.intake.Accept(request.Context(), app.AcceptCommand{Transaction: transaction, CorrelationID: requestID})
 	if err != nil {
 		switch {
 		case errors.Is(err, app.ErrInvalidTransaction):
-			writeError(response, http.StatusUnprocessableEntity, "invalid_transaction", "transaction is invalid", requestID)
+			writeError(response, http.StatusBadRequest, "invalid_transaction", "transaction is invalid", requestID)
 		case errors.Is(err, app.ErrConflict):
-			writeError(response, http.StatusConflict, "transaction_conflict", "transaction ID already has different content", requestID)
+			writeError(response, http.StatusBadRequest, "transaction_conflict", "source reference already has different content", requestID)
 		default:
 			writeError(response, http.StatusServiceUnavailable, "service_unavailable", "transaction service is unavailable", requestID)
 		}
@@ -111,10 +123,11 @@ func (handler *handler) transactions(response http.ResponseWriter, request *http
 		status = http.StatusOK
 		response.Header().Set("Idempotent-Replay", "true")
 	}
-	writeJSON(response, status, map[string]string{
-		"transactionId": result.TransactionID,
-		"eventId":       result.EventID,
-		"status":        string(result.Kind),
+	writeJSON(response, status, map[string]any{
+		"id":                 result.ID,
+		"association_status": "received",
+		"settlement_status":  "priced",
+		"duplicate":          result.Kind == app.Replayed,
 	})
 }
 
@@ -149,29 +162,30 @@ func (handler *handler) metrics(response http.ResponseWriter, request *http.Requ
 }
 
 type transactionRequest struct {
-	TransactionID string              `json:"transactionId"`
-	OccurredAt    string              `json:"occurredAt"`
-	AmountMinor   int64               `json:"amountMinor"`
-	Currency      string              `json:"currency"`
-	AgencyID      string              `json:"agencyId"`
-	PlazaID       string              `json:"plazaId"`
-	LaneID        string              `json:"laneId"`
-	VehicleClass  domain.VehicleClass `json:"vehicleClass"`
+	Source             string         `json:"source"`
+	SourceReference    string         `json:"source_reference"`
+	TransactionType    string         `json:"transaction_type"`
+	TransactionTimeUTC string         `json:"transaction_time_utc"`
+	BaseAmount         string         `json:"base_amount"`
+	Currency           string         `json:"currency"`
+	Plate              *domain.Plate  `json:"plate"`
+	TransponderNumber  string         `json:"transponder_number"`
+	Location           map[string]any `json:"location"`
+	Metadata           map[string]any `json:"metadata"`
 }
 
 func (input transactionRequest) toDomain(partnerID string) (domain.Transaction, error) {
-	occurredAt, err := time.Parse(time.RFC3339, input.OccurredAt)
+	occurredAt, err := time.Parse(time.RFC3339, input.TransactionTimeUTC)
 	if err != nil {
 		return domain.Transaction{}, err
 	}
 	transaction := domain.Transaction{
-		ID: input.TransactionID, PartnerID: partnerID, OccurredAt: occurredAt,
-		AmountMinor: input.AmountMinor, Currency: input.Currency, AgencyID: input.AgencyID,
-		PlazaID: input.PlazaID, LaneID: input.LaneID, VehicleClass: input.VehicleClass,
+		ID: "", Source: input.Source, SourceReference: input.SourceReference,
+		TransactionType: input.TransactionType, TransactionTimeUTC: occurredAt.UTC(),
+		BaseAmount: input.BaseAmount, Currency: input.Currency, Plate: input.Plate,
+		TransponderNumber: input.TransponderNumber, Location: input.Location, Metadata: input.Metadata,
 	}
-	if err := transaction.Validate(); err != nil {
-		return domain.Transaction{}, err
-	}
+	_ = partnerID
 	return transaction, nil
 }
 
@@ -187,11 +201,8 @@ func ensureJSONEnd(decoder *json.Decoder) error {
 	return err
 }
 
-func writeError(response http.ResponseWriter, status int, code, message, requestID string) {
-	writeJSON(response, status, map[string]any{
-		"error":     map[string]string{"code": code, "message": message},
-		"requestId": requestID,
-	})
+func writeError(response http.ResponseWriter, status int, _ string, message, _ string) {
+	writeJSON(response, status, map[string]any{"code": status, "message": message})
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {

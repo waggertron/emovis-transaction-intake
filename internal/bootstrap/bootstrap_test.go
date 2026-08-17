@@ -6,12 +6,12 @@ import (
 	"time"
 )
 
-func TestLoadConfigRequiresExternalizedAPIKey(t *testing.T) {
+func TestLoadConfigDefaultsToUnauthenticatedLocalMode(t *testing.T) {
 	t.Parallel()
 
-	_, err := LoadConfig(func(string) string { return "" })
-	if err == nil {
-		t.Fatal("expected missing API key configuration to fail")
+	config, err := LoadConfig(func(string) string { return "" })
+	if err != nil || config.AuthMode != "disabled" {
+		t.Fatalf("expected disabled local auth, got config=%#v err=%v", config, err)
 	}
 }
 

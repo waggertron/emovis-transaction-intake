@@ -46,7 +46,7 @@ func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.
 		return app.StoreOutcome{}, err
 	}
 
-	key := acceptance.Transaction.PartnerID + ":" + acceptance.Transaction.ID
+	key := acceptance.Transaction.Source + ":" + acceptance.Transaction.SourceReference
 	store.mu.Lock()
 	defer store.mu.Unlock()
 

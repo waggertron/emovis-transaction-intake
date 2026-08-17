@@ -91,9 +91,12 @@ func startLocal(ctx context.Context, config bootstrap.Config) error {
 }
 
 func serveAPI(ctx context.Context, config bootstrap.Config, store app.IntakeStore) error {
-	intake := app.NewIntakeService(store, time.Now, rand.Text)
-	auth := httpadapter.NewStaticAPIKeys(map[string]string{config.PartnerID: config.APIKey})
-	handler := httpadapter.NewHandler(intake, auth, rand.Text, func() bool { return readyForRequests(store) })
+	intake := app.NewIntakeService(store, time.Now, rand.Text, config.TransactionTypes)
+	var auth httpadapter.Authenticator
+	if config.AuthMode == "api_key" {
+		auth = httpadapter.NewStaticAPIKeys(map[string]string{config.PartnerID: config.APIKey})
+	}
+	handler := httpadapter.NewHandler(intake, auth, rand.Text, func() bool { return readyForRequests(store) }, config.DefaultCurrency)
 	server := bootstrap.NewHTTPServer(config.Address, handler)
 	slog.Info("HTTP server starting", "address", config.Address)
 	return serveHTTPServer(ctx, server)

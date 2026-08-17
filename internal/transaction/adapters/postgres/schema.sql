@@ -1,11 +1,13 @@
 CREATE TABLE IF NOT EXISTS transactions (
-    partner_id VARCHAR(64) NOT NULL,
-    transaction_id UUID NOT NULL,
-    fingerprint CHAR(64) NOT NULL,
+    id TEXT NOT NULL,
+    source VARCHAR(64) NOT NULL,
+    source_reference VARCHAR(128) NOT NULL,
+    fingerprint VARCHAR(64) NOT NULL,
     payload JSONB NOT NULL,
     event_id TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (partner_id, transaction_id),
+    PRIMARY KEY (id),
+    UNIQUE (source, source_reference),
     UNIQUE (event_id)
 );
 

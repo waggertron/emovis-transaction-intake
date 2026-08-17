@@ -83,7 +83,7 @@ func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.
 	if err := ctx.Err(); err != nil {
 		return app.StoreOutcome{}, err
 	}
-	key := acceptance.Transaction.PartnerID + ":" + acceptance.Transaction.ID
+	key := acceptance.Transaction.Source + ":" + acceptance.Transaction.SourceReference
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	if existing, found := store.transactions[key]; found {
@@ -194,7 +194,7 @@ func (store *Store) apply(record logRecord) error {
 			return fmt.Errorf("accepted record has no acceptance")
 		}
 		acceptance := *record.Acceptance
-		key := acceptance.Transaction.PartnerID + ":" + acceptance.Transaction.ID
+		key := acceptance.Transaction.Source + ":" + acceptance.Transaction.SourceReference
 		store.transactions[key] = storedTransaction{fingerprint: acceptance.Fingerprint, eventID: acceptance.Event.ID}
 		store.events[acceptance.Event.ID] = &storedEvent{event: acceptance.Event}
 	case "failed":

@@ -28,12 +28,12 @@ func (publisher *Publisher) Publish(ctx context.Context, event app.OutboxEvent) 
 	value, err := json.Marshal(eventEnvelope{
 		EventID: event.ID, EventType: event.Type, SchemaVersion: event.SchemaVersion,
 		OccurredAt: event.OccurredAt.UTC().Format(time.RFC3339Nano), CorrelationID: event.CorrelationID,
-		PartnerID: event.PartnerID, TransactionID: event.TransactionID,
+		Source: event.Source, SourceReference: event.SourceReference, TransactionID: event.TransactionID,
 		Payload: transactionPayload{
-			TransactionID: event.Payload.ID, OccurredAt: event.Payload.OccurredAt.UTC().Format(time.RFC3339Nano),
-			AmountMinor: event.Payload.AmountMinor, Currency: event.Payload.Currency,
-			AgencyID: event.Payload.AgencyID, PlazaID: event.Payload.PlazaID, LaneID: event.Payload.LaneID,
-			VehicleClass: event.Payload.VehicleClass,
+			ID: event.Payload.ID, Source: event.Payload.Source, SourceReference: event.Payload.SourceReference,
+			TransactionType: event.Payload.TransactionType, TransactionTimeUTC: event.Payload.TransactionTimeUTC.UTC().Format(time.RFC3339Nano),
+			BaseAmount: event.Payload.BaseAmount, Currency: event.Payload.Currency, Plate: event.Payload.Plate,
+			TransponderNumber: event.Payload.TransponderNumber, Location: event.Payload.Location, Metadata: event.Payload.Metadata,
 		},
 	})
 	if err != nil {
@@ -56,23 +56,27 @@ func (publisher *Publisher) Publish(ctx context.Context, event app.OutboxEvent) 
 }
 
 type eventEnvelope struct {
-	EventID       string             `json:"eventId"`
-	EventType     string             `json:"eventType"`
-	SchemaVersion int                `json:"schemaVersion"`
-	OccurredAt    string             `json:"occurredAt"`
-	CorrelationID string             `json:"correlationId"`
-	PartnerID     string             `json:"partnerId"`
-	TransactionID string             `json:"transactionId"`
-	Payload       transactionPayload `json:"payload"`
+	EventID         string             `json:"eventId"`
+	EventType       string             `json:"eventType"`
+	SchemaVersion   int                `json:"schemaVersion"`
+	OccurredAt      string             `json:"occurredAt"`
+	CorrelationID   string             `json:"correlationId"`
+	Source          string             `json:"source"`
+	SourceReference string             `json:"sourceReference"`
+	TransactionID   string             `json:"transactionId"`
+	Payload         transactionPayload `json:"payload"`
 }
 
 type transactionPayload struct {
-	TransactionID string              `json:"transactionId"`
-	OccurredAt    string              `json:"occurredAt"`
-	AmountMinor   int64               `json:"amountMinor"`
-	Currency      string              `json:"currency"`
-	AgencyID      string              `json:"agencyId"`
-	PlazaID       string              `json:"plazaId"`
-	LaneID        string              `json:"laneId"`
-	VehicleClass  domain.VehicleClass `json:"vehicleClass"`
+	ID                 string         `json:"id"`
+	Source             string         `json:"source"`
+	SourceReference    string         `json:"source_reference"`
+	TransactionType    string         `json:"transaction_type"`
+	TransactionTimeUTC string         `json:"transaction_time_utc"`
+	BaseAmount         string         `json:"base_amount"`
+	Currency           string         `json:"currency"`
+	Plate              *domain.Plate  `json:"plate,omitempty"`
+	TransponderNumber  string         `json:"transponder_number,omitempty"`
+	Location           map[string]any `json:"location,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
 }

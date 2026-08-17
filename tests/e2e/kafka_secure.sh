@@ -13,5 +13,5 @@ e2e_compose exec -T kafka-secure /opt/kafka/bin/kafka-console-consumer.sh \
   --topic transaction.review-candidates.v1 --from-beginning --max-messages 1 --timeout-ms 30000 \
   >"${E2E_TEMP_DIR}/event.json"
 grep -Fq '"eventType":"transaction.review-candidate"' "${E2E_TEMP_DIR}/event.json"
-grep -Fq "\"transactionId\":\"${transaction_id}\"" "${E2E_TEMP_DIR}/event.json"
+grep -Fq "\"source_reference\":\"${transaction_id}\"" "${E2E_TEMP_DIR}/event.json"
 e2e_assert_replay_and_conflict 18084

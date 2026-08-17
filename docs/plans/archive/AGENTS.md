@@ -23,6 +23,7 @@ Run numbering, Markdown/link, hierarchy, and diff checks.
 | `2026-08-17T05-13-47-0700-knowledge-persistence-plan.md` | Records completed reusable-skill, onboarding, retrospective, and instruction-audit work. |
 | `2026-08-17T05-37-19-0700-adversarial-review-remediation-plan.md` | Records completed adversarial-review remediation, command-first onboarding, dotenv integration, repeatability fixes, and final local evidence. |
 | `2026-08-17T13-50-00-0700-explicit-storage-selection-plan.md` | Records the explicit Terraform storage-selection decision and validation evidence. |
+| `2026-08-17T11-30-00-0700-ingest-contract-implementation.md` | Records the supplied OpenAPI ingest-contract migration, test evidence, and completion decisions. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

@@ -19,7 +19,7 @@ Run numbering, Markdown/link, and diff checks.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| None | No active plan documents remain after the completed storage-selection plan was archived. |
+| None | No active plan documents remain after the completed ingest-contract plan was archived. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

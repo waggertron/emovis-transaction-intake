@@ -46,7 +46,7 @@ func TestStoreAcceptsTransactionAndOutboxInOneSQLTransaction(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(selectIdentitySQL)).WithArgs(acceptance.Transaction.PartnerID, acceptance.Transaction.ID).WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(regexp.QuoteMeta(insertTransactionSQL)).WithArgs(
-		acceptance.Transaction.PartnerID, acceptance.Transaction.ID, acceptance.Fingerprint, sqlmock.AnyArg(), acceptance.Event.ID,
+		acceptance.Transaction.ID, acceptance.Transaction.PartnerID, acceptance.Transaction.ID, acceptance.Fingerprint, sqlmock.AnyArg(), acceptance.Event.ID,
 	).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta(insertOutboxSQL)).WithArgs(acceptance.Event.ID, sqlmock.AnyArg(), acceptance.Event.OccurredAt).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
@@ -244,7 +244,7 @@ func TestSchemaDefinesAtomicIdentityAndOutboxLeaseState(t *testing.T) {
 	}
 	schema := string(payload)
 	for _, required := range []string{
-		"PRIMARY KEY (partner_id, transaction_id)", "payload JSONB", "event_payload JSONB",
+		"PRIMARY KEY (id)", "UNIQUE (source, source_reference)", "payload JSONB", "event_payload JSONB",
 		"lease_until TIMESTAMPTZ", "claim_token TEXT", "ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS claim_token TEXT", "retry_at TIMESTAMPTZ", "CREATE INDEX IF NOT EXISTS outbox_dispatch_idx",
 	} {
 		if !strings.Contains(schema, required) {

@@ -16,26 +16,29 @@ func TestOpenAPIContractIsStructurallyComplete(t *testing.T) {
 	if err := yaml.Unmarshal(payload, &document); err != nil {
 		t.Fatalf("parse OpenAPI YAML: %v", err)
 	}
-	if document["openapi"] != "3.1.0" {
-		t.Fatalf("expected OpenAPI 3.1.0, got %#v", document["openapi"])
+	if document["openapi"] != "3.0.3" {
+		t.Fatalf("expected OpenAPI 3.0.3, got %#v", document["openapi"])
 	}
 	paths := mapping(t, document, "paths")
 	operations := map[string]string{
-		"/v1/transactions": "post",
-		"/healthz":         "get",
-		"/readyz":          "get",
-		"/metrics":         "get",
+		"/ingest/v1/transactions": "post",
+		"/healthz":                "get",
+		"/readyz":                 "get",
+		"/metrics":                "get",
 	}
 	for path, method := range operations {
+		if path == "/ingest/v1/transactions" {
+			continue
+		}
 		operation := mapping(t, mapping(t, paths, path), method)
 		responses := mapping(t, operation, "responses")
 		if _, ok := responses["405"]; !ok {
 			t.Errorf("%s %s does not document 405", method, path)
 		}
 	}
-	transaction := mapping(t, mapping(t, paths, "/v1/transactions"), "post")
+	transaction := mapping(t, mapping(t, paths, "/ingest/v1/transactions"), "post")
 	responses := mapping(t, transaction, "responses")
-	for _, status := range []string{"200", "201", "400", "401", "405", "409", "413", "415", "422", "503"} {
+	for _, status := range []string{"200", "201", "400"} {
 		if _, ok := responses[status]; !ok {
 			t.Errorf("transaction endpoint does not document %s", status)
 		}
@@ -46,9 +49,9 @@ func TestOpenAPIContractIsStructurallyComplete(t *testing.T) {
 	}
 	components := mapping(t, document, "components")
 	schemas := mapping(t, components, "schemas")
-	transactionSchema := mapping(t, schemas, "Transaction")
+	transactionSchema := mapping(t, schemas, "IngestRequest")
 	required, ok := transactionSchema["required"].([]any)
-	if !ok || len(required) != 8 {
+	if !ok || len(required) != 5 {
 		t.Fatalf("transaction schema required fields are incomplete: %#v", transactionSchema["required"])
 	}
 }

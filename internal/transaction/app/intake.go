@@ -32,15 +32,18 @@ const (
 )
 
 type OutboxEvent struct {
-	ID            string
-	Type          string
-	SchemaVersion int
-	OccurredAt    time.Time
-	CorrelationID string
-	PartnerID     string
-	TransactionID string
-	Key           string
-	Payload       domain.Transaction
+	ID              string
+	Type            string
+	SchemaVersion   int
+	OccurredAt      time.Time
+	CorrelationID   string
+	Source          string
+	SourceReference string
+	TransactionID   string
+	// Deprecated: use Source for new events.
+	PartnerID string
+	Key       string
+	Payload   domain.Transaction
 }
 
 type Acceptance struct {
@@ -64,52 +67,63 @@ type AcceptCommand struct {
 }
 
 type AcceptResult struct {
-	Kind          ResultKind
+	Kind    ResultKind
+	ID      string
+	EventID string
+	// Deprecated: use ID.
 	TransactionID string
-	EventID       string
 }
 
 type IntakeService struct {
-	store IntakeStore
-	now   func() time.Time
-	newID func() string
+	store        IntakeStore
+	now          func() time.Time
+	newID        func() string
+	allowedTypes map[string]struct{}
 }
 
-func NewIntakeService(store IntakeStore, now func() time.Time, newID func() string) *IntakeService {
-	return &IntakeService{store: store, now: now, newID: newID}
+func NewIntakeService(store IntakeStore, now func() time.Time, newID func() string, typeSets ...map[string]struct{}) *IntakeService {
+	allowedTypes := map[string]struct{}{"toll": {}}
+	if len(typeSets) > 0 && typeSets[0] != nil {
+		allowedTypes = typeSets[0]
+	}
+	return &IntakeService{store: store, now: now, newID: newID, allowedTypes: allowedTypes}
 }
 
 func (service *IntakeService) Accept(ctx context.Context, command AcceptCommand) (AcceptResult, error) {
-	if err := command.Transaction.Validate(); err != nil {
+	if err := command.Transaction.Validate(service.allowedTypes); err != nil {
 		return AcceptResult{}, fmt.Errorf("%w: %v", ErrInvalidTransaction, err)
 	}
-	fingerprint, err := command.Transaction.Fingerprint()
+	fingerprint, err := command.Transaction.Fingerprint(service.allowedTypes)
 	if err != nil {
 		return AcceptResult{}, fmt.Errorf("%w: %v", ErrInvalidTransaction, err)
 	}
 
 	eventID := service.newID()
 	transaction := command.Transaction
+	if transaction.ID == "" {
+		transaction.ID = service.newID()
+	}
 	outcome, err := service.store.Accept(ctx, Acceptance{
 		Transaction: transaction,
 		Fingerprint: fingerprint,
 		Event: OutboxEvent{
-			ID:            eventID,
-			Type:          ReviewCandidateEventType,
-			SchemaVersion: 1,
-			OccurredAt:    service.now().UTC(),
-			CorrelationID: command.CorrelationID,
-			PartnerID:     transaction.PartnerID,
-			TransactionID: transaction.ID,
-			Key:           transaction.PartnerID + ":" + transaction.ID,
-			Payload:       transaction,
+			ID:              eventID,
+			Type:            ReviewCandidateEventType,
+			SchemaVersion:   1,
+			OccurredAt:      service.now().UTC(),
+			CorrelationID:   command.CorrelationID,
+			Source:          transaction.Source,
+			SourceReference: transaction.SourceReference,
+			TransactionID:   transaction.ID,
+			Key:             transaction.Source + ":" + transaction.SourceReference,
+			Payload:         transaction,
 		},
 	})
 	if err != nil {
 		return AcceptResult{}, fmt.Errorf("accept transaction: %w", err)
 	}
 
-	result := AcceptResult{TransactionID: transaction.ID, EventID: outcome.EventID}
+	result := AcceptResult{ID: transaction.ID, TransactionID: transaction.ID, EventID: outcome.EventID}
 	switch outcome.Kind {
 	case StoreAccepted:
 		result.Kind = Accepted
