@@ -198,7 +198,7 @@ func TestRunLoadsConfigAndSelectsExactMode(t *testing.T) {
 	}
 }
 
-func TestRunDoesNotStartWithInvalidConfig(t *testing.T) {
+func TestRunStartsWithSafeLocalConfig(t *testing.T) {
 	t.Parallel()
 
 	called := false
@@ -206,11 +206,11 @@ func TestRunDoesNotStartWithInvalidConfig(t *testing.T) {
 		called = true
 		return nil
 	}}
-	if err := run(context.Background(), []string{"api"}, func(string) string { return "" }, starters); err == nil {
-		t.Fatal("expected invalid config to fail")
+	if err := run(context.Background(), []string{"api"}, func(string) string { return "" }, starters); err != nil {
+		t.Fatalf("expected safe local config: %v", err)
 	}
-	if called {
-		t.Fatal("starter called with invalid config")
+	if !called {
+		t.Fatal("starter not called with safe local config")
 	}
 }
 

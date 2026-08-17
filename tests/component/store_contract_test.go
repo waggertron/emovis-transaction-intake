@@ -129,10 +129,10 @@ func TestPostgresSatisfiesTransactionStoreContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin unique-constraint check: %v", err)
 	}
-	if _, err = constraintTx.ExecContext(ctx, `INSERT INTO transactions (partner_id, transaction_id, fingerprint, payload, event_id) VALUES ('constraint-partner', '018f47a8-40d1-7e32-b6d6-4f4f8f9c9e10', repeat('a', 64), '{}', 'constraint-event-1')`); err != nil {
+	if _, err = constraintTx.ExecContext(ctx, `INSERT INTO transactions (id, source, source_reference, fingerprint, payload, event_id) VALUES ('constraint-id-1', 'constraint-source', 'constraint-ref', repeat('a', 64), '{}', 'constraint-event-1')`); err != nil {
 		t.Fatalf("seed unique-constraint check: %v", err)
 	}
-	if _, err = constraintTx.ExecContext(ctx, `INSERT INTO transactions (partner_id, transaction_id, fingerprint, payload, event_id) VALUES ('constraint-partner', '018f47a8-40d1-7e32-b6d6-4f4f8f9c9e10', repeat('b', 64), '{}', 'constraint-event-2')`); err == nil {
+	if _, err = constraintTx.ExecContext(ctx, `INSERT INTO transactions (id, source, source_reference, fingerprint, payload, event_id) VALUES ('constraint-id-2', 'constraint-source', 'constraint-ref', repeat('b', 64), '{}', 'constraint-event-2')`); err == nil {
 		t.Fatal("expected partner/transaction unique constraint")
 	}
 	_ = constraintTx.Rollback()
@@ -143,7 +143,7 @@ func TestPostgresSatisfiesTransactionStoreContract(t *testing.T) {
 	rollbackAcceptance := contractAcceptance("evt-postgres-rollback")
 	rollbackAcceptance.Transaction.ID = "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e11"
 	rollbackAcceptance.Event.TransactionID = rollbackAcceptance.Transaction.ID
-	rollbackAcceptance.Event.Key = rollbackAcceptance.Transaction.PartnerID + ":" + rollbackAcceptance.Transaction.ID
+	rollbackAcceptance.Event.Key = rollbackAcceptance.Transaction.Source + ":" + rollbackAcceptance.Transaction.SourceReference
 	rollbackAcceptance.Event.Payload = rollbackAcceptance.Transaction
 	rollbackAcceptance.Fingerprint, _ = rollbackAcceptance.Transaction.Fingerprint()
 	if _, err = postgresadapter.NewStore(database).Accept(ctx, rollbackAcceptance); err == nil {
@@ -153,7 +153,7 @@ func TestPostgresSatisfiesTransactionStoreContract(t *testing.T) {
 		t.Fatalf("remove rollback trigger: %v", err)
 	}
 	var rolledBack int
-	if err = database.QueryRowContext(ctx, `SELECT count(*) FROM transactions WHERE transaction_id = $1`, rollbackAcceptance.Transaction.ID).Scan(&rolledBack); err != nil || rolledBack != 0 {
+	if err = database.QueryRowContext(ctx, `SELECT count(*) FROM transactions WHERE id = $1`, rollbackAcceptance.Transaction.ID).Scan(&rolledBack); err != nil || rolledBack != 0 {
 		t.Fatalf("transaction row survived outbox rollback: count=%d err=%v", rolledBack, err)
 	}
 	factory := func(t *testing.T) app.TransactionStore {
@@ -165,8 +165,9 @@ func TestPostgresSatisfiesTransactionStoreContract(t *testing.T) {
 	runTransactionStoreContract(t, factory)
 	persistenceAcceptance := contractAcceptance("evt-postgres-persistence")
 	persistenceAcceptance.Transaction.ID = "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e12"
+	persistenceAcceptance.Transaction.SourceReference = "persistence-ref"
 	persistenceAcceptance.Event.TransactionID = persistenceAcceptance.Transaction.ID
-	persistenceAcceptance.Event.Key = persistenceAcceptance.Transaction.PartnerID + ":" + persistenceAcceptance.Transaction.ID
+	persistenceAcceptance.Event.Key = persistenceAcceptance.Transaction.Source + ":" + persistenceAcceptance.Transaction.SourceReference
 	persistenceAcceptance.Event.Payload = persistenceAcceptance.Transaction
 	persistenceAcceptance.Fingerprint, _ = persistenceAcceptance.Transaction.Fingerprint()
 	if _, err = postgresadapter.NewStore(database).Accept(ctx, persistenceAcceptance); err != nil {
@@ -198,7 +199,7 @@ func runConcurrentLeaseContract(t *testing.T, store app.TransactionStore, accept
 	t.Helper()
 	acceptance.Transaction.ID = "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e03"
 	acceptance.Event.TransactionID = acceptance.Transaction.ID
-	acceptance.Event.Key = acceptance.Transaction.PartnerID + ":" + acceptance.Transaction.ID
+	acceptance.Event.Key = acceptance.Transaction.Source + ":" + acceptance.Transaction.SourceReference
 	acceptance.Event.Payload = acceptance.Transaction
 	acceptance.Fingerprint, _ = acceptance.Transaction.Fingerprint()
 	if _, err := store.Accept(context.Background(), acceptance); err != nil {
@@ -348,15 +349,11 @@ func runTransactionStoreContract(t *testing.T, factory storeFactory) {
 }
 
 func contractAcceptance(eventID string) app.Acceptance {
-	transaction := domain.Transaction{
-		ID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", PartnerID: "partner-contract",
-		OccurredAt: time.Date(2026, 8, 17, 6, 0, 0, 0, time.UTC), AmountMinor: 725,
-		Currency: "USD", AgencyID: "agency-17", PlazaID: "plaza-4", LaneID: "lane-2", VehicleClass: domain.VehicleClassCar,
-	}
+	transaction := domain.Transaction{ID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", Source: "partner-contract", SourceReference: "source-ref", TransactionType: "toll", TransactionTimeUTC: time.Date(2026, 8, 17, 6, 0, 0, 0, time.UTC), BaseAmount: "7.25", Currency: "USD", TransponderNumber: "tag"}
 	fingerprint, _ := transaction.Fingerprint()
 	return app.Acceptance{Transaction: transaction, Fingerprint: fingerprint, Event: app.OutboxEvent{
 		ID: eventID, Type: app.ReviewCandidateEventType, SchemaVersion: 1,
-		OccurredAt: time.Date(2026, 8, 17, 6, 1, 0, 0, time.UTC), PartnerID: transaction.PartnerID,
-		TransactionID: transaction.ID, Key: transaction.PartnerID + ":" + transaction.ID, Payload: transaction,
+		OccurredAt: time.Date(2026, 8, 17, 6, 1, 0, 0, time.UTC), Source: transaction.Source, SourceReference: transaction.SourceReference,
+		TransactionID: transaction.ID, Key: transaction.Source + ":" + transaction.SourceReference, Payload: transaction,
 	}}
 }

@@ -43,12 +43,12 @@ e2e_wait_for_api() {
 e2e_request() {
   local port="$1"
   local transaction_id="$2"
-  E2E_REQUEST="{\"transactionId\":\"${transaction_id}\",\"occurredAt\":\"2026-08-17T18:30:00Z\",\"amountMinor\":725,\"currency\":\"USD\",\"agencyId\":\"agency-17\",\"plazaId\":\"plaza-4\",\"laneId\":\"lane-2\",\"vehicleClass\":\"CAR\"}"
+  E2E_REQUEST="{\"source\":\"e2e-source\",\"source_reference\":\"${transaction_id}\",\"transaction_type\":\"toll\",\"transaction_time_utc\":\"2026-08-17T18:30:00Z\",\"base_amount\":\"7.25\",\"currency\":\"USD\",\"transponder_number\":\"0180012345678\"}"
   export E2E_REQUEST
   local status
   status="$(curl --silent --show-error -D "${E2E_TEMP_DIR}/first.headers" -o "${E2E_TEMP_DIR}/first.json" -w '%{http_code}' \
     -H 'Content-Type: application/json' -H 'X-API-Key: local-development-only-key' \
-    --data "${E2E_REQUEST}" "http://127.0.0.1:${port}/v1/transactions")"
+    --data "${E2E_REQUEST}" "http://127.0.0.1:${port}/ingest/v1/transactions")"
   [[ "${status}" == "201" ]] || { echo "expected first request 201, got ${status}" >&2; return 1; }
 }
 
@@ -57,15 +57,15 @@ e2e_assert_replay_and_conflict() {
   local status
   status="$(curl --silent --show-error -D "${E2E_TEMP_DIR}/replay.headers" -o "${E2E_TEMP_DIR}/replay.json" -w '%{http_code}' \
     -H 'Content-Type: application/json' -H 'X-API-Key: local-development-only-key' \
-    --data "${E2E_REQUEST}" "http://127.0.0.1:${port}/v1/transactions")"
+    --data "${E2E_REQUEST}" "http://127.0.0.1:${port}/ingest/v1/transactions")"
   [[ "${status}" == "200" ]] || { echo "expected replay 200, got ${status}" >&2; return 1; }
   grep -Eiq '^Idempotent-Replay: true' "${E2E_TEMP_DIR}/replay.headers"
 
-  local changed="${E2E_REQUEST/\"amountMinor\":725/\"amountMinor\":726}"
+  local changed="${E2E_REQUEST/\"base_amount\":\"7.25\"/\"base_amount\":\"7.26\"}"
   status="$(curl --silent --show-error -o "${E2E_TEMP_DIR}/conflict.json" -w '%{http_code}' \
     -H 'Content-Type: application/json' -H 'X-API-Key: local-development-only-key' \
-    --data "${changed}" "http://127.0.0.1:${port}/v1/transactions")"
-  [[ "${status}" == "409" ]] || { echo "expected changed duplicate 409, got ${status}" >&2; return 1; }
+    --data "${changed}" "http://127.0.0.1:${port}/ingest/v1/transactions")"
+  [[ "${status}" == "400" ]] || { echo "expected changed duplicate 400, got ${status}" >&2; return 1; }
 }
 
 e2e_consume_event() {
@@ -74,16 +74,16 @@ e2e_consume_event() {
     --bootstrap-server kafka:9092 --topic transaction.review-candidates.v1 \
     --from-beginning --max-messages 1 --timeout-ms 30000 >"${E2E_TEMP_DIR}/event.json"
   grep -Fq '"eventType":"transaction.review-candidate"' "${E2E_TEMP_DIR}/event.json"
-  grep -Fq "\"transactionId\":\"${transaction_id}\"" "${E2E_TEMP_DIR}/event.json"
+  grep -Fq "\"source_reference\":\"${transaction_id}\"" "${E2E_TEMP_DIR}/event.json"
 }
 
 e2e_assert_dependency_failure() {
   local port="$1"
   local transaction_id="$2"
-  local request="{\"transactionId\":\"${transaction_id}\",\"occurredAt\":\"2026-08-17T18:31:00Z\",\"amountMinor\":825,\"currency\":\"USD\",\"agencyId\":\"agency-17\",\"plazaId\":\"plaza-4\",\"laneId\":\"lane-2\",\"vehicleClass\":\"CAR\"}"
+  local request="{\"source\":\"e2e-source\",\"source_reference\":\"${transaction_id}\",\"transaction_type\":\"toll\",\"transaction_time_utc\":\"2026-08-17T18:31:00Z\",\"base_amount\":\"8.25\",\"currency\":\"USD\",\"transponder_number\":\"0180012345678\"}"
   local status
   status="$(curl --silent --show-error -o "${E2E_TEMP_DIR}/dependency-failure.json" -w '%{http_code}' \
     -H 'Content-Type: application/json' -H 'X-API-Key: local-development-only-key' \
-    --data "${request}" "http://127.0.0.1:${port}/v1/transactions")"
+    --data "${request}" "http://127.0.0.1:${port}/ingest/v1/transactions")"
   [[ "${status}" == "503" ]] || { echo "expected dependency failure 503, got ${status}" >&2; return 1; }
 }

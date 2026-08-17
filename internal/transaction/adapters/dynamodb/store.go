@@ -46,7 +46,7 @@ func (store *Store) Ready(ctx context.Context) error {
 }
 
 func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.StoreOutcome, error) {
-	identityKey := "TX#" + acceptance.Transaction.PartnerID + "#" + acceptance.Transaction.ID
+	identityKey := "TX#" + acceptance.Transaction.Source + "#" + acceptance.Transaction.SourceReference
 	existingOutcome, found, err := store.readIdentity(ctx, identityKey, acceptance.Fingerprint)
 	if err != nil {
 		return app.StoreOutcome{}, err

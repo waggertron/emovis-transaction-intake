@@ -6,96 +6,116 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 )
 
-type VehicleClass string
-
-const (
-	VehicleClassCar        VehicleClass = "CAR"
-	VehicleClassMotorcycle VehicleClass = "MOTORCYCLE"
-	VehicleClassTruck      VehicleClass = "TRUCK"
-	VehicleClassBus        VehicleClass = "BUS"
-)
-
 var (
-	uuidPattern       = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
-	identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)
+	identifierPattern = regexp.MustCompile(`^[^\x00-\x1f\x7f]+$`)
+	amountPattern     = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
 	currencyPattern   = regexp.MustCompile(`^[A-Z]{3}$`)
 )
 
+type Plate struct {
+	Number       string `json:"number"`
+	Jurisdiction string `json:"jurisdiction"`
+}
+
 type Transaction struct {
-	ID           string
+	ID                 string         `json:"id"`
+	Source             string         `json:"source"`
+	SourceReference    string         `json:"source_reference"`
+	TransactionType    string         `json:"transaction_type"`
+	TransactionTimeUTC time.Time      `json:"transaction_time_utc"`
+	BaseAmount         string         `json:"base_amount"`
+	Currency           string         `json:"currency"`
+	Plate              *Plate         `json:"plate,omitempty"`
+	TransponderNumber  string         `json:"transponder_number,omitempty"`
+	Location           map[string]any `json:"location,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
+	// Deprecated: legacy fields retained only for source compatibility during migration.
 	PartnerID    string
 	OccurredAt   time.Time
 	AmountMinor  int64
-	Currency     string
 	AgencyID     string
 	PlazaID      string
 	LaneID       string
-	VehicleClass VehicleClass
+	VehicleClass string
 }
 
-func (transaction Transaction) Validate() error {
-	if !uuidPattern.MatchString(transaction.ID) {
-		return fmt.Errorf("transaction ID must be a UUID")
+// Deprecated legacy constants retained for source compatibility during migration.
+const (
+	VehicleClassCar        = "CAR"
+	VehicleClassMotorcycle = "MOTORCYCLE"
+	VehicleClassTruck      = "TRUCK"
+	VehicleClassBus        = "BUS"
+)
+
+func (t Transaction) Validate(typeSets ...map[string]struct{}) error {
+	if t.Source == "" && t.PartnerID != "" {
+		t.Source = t.PartnerID
 	}
-	for name, value := range map[string]string{
-		"partner ID": transaction.PartnerID,
-		"agency ID":  transaction.AgencyID,
-		"plaza ID":   transaction.PlazaID,
-		"lane ID":    transaction.LaneID,
-	} {
-		if !identifierPattern.MatchString(value) {
-			return fmt.Errorf("%s must be 1-64 safe identifier characters", name)
-		}
+	if t.SourceReference == "" && t.ID != "" {
+		t.SourceReference = t.ID
 	}
-	if transaction.OccurredAt.IsZero() {
-		return fmt.Errorf("occurred at must be set")
+	if t.TransactionType == "" {
+		t.TransactionType = "toll"
 	}
-	if transaction.AmountMinor <= 0 {
-		return fmt.Errorf("amount minor must be positive")
+	if t.TransactionTimeUTC.IsZero() {
+		t.TransactionTimeUTC = t.OccurredAt
 	}
-	if !currencyPattern.MatchString(transaction.Currency) {
+	if t.BaseAmount == "" && t.AmountMinor > 0 {
+		t.BaseAmount = fmt.Sprintf("%d", t.AmountMinor)
+	}
+	allowedTypes := map[string]struct{}{"toll": {}}
+	if len(typeSets) > 0 && typeSets[0] != nil {
+		allowedTypes = typeSets[0]
+	}
+	if !validBounded(t.Source, 1, 64) {
+		return fmt.Errorf("source must be 1-64 characters")
+	}
+	if !validBounded(t.SourceReference, 1, 128) {
+		return fmt.Errorf("source_reference must be 1-128 characters")
+	}
+	if _, ok := allowedTypes[t.TransactionType]; !ok {
+		return fmt.Errorf("unrecognized transaction_type")
+	}
+	if t.TransactionTimeUTC.IsZero() {
+		return fmt.Errorf("transaction_time_utc must be set")
+	}
+	if !amountPattern.MatchString(t.BaseAmount) {
+		return fmt.Errorf("base_amount must be a decimal string")
+	}
+	if t.Currency != "" && !currencyPattern.MatchString(t.Currency) {
 		return fmt.Errorf("currency must be three uppercase letters")
 	}
-	switch transaction.VehicleClass {
-	case VehicleClassCar, VehicleClassMotorcycle, VehicleClassTruck, VehicleClassBus:
-	default:
-		return fmt.Errorf("unsupported vehicle class")
+	if t.Plate == nil && strings.TrimSpace(t.TransponderNumber) == "" {
+		return fmt.Errorf("plate or transponder_number is required")
+	}
+	if t.Plate != nil && (!validBounded(t.Plate.Number, 1, 16) || !validBounded(t.Plate.Jurisdiction, 1, 8)) {
+		return fmt.Errorf("plate is invalid")
+	}
+	if len(t.TransponderNumber) > 64 {
+		return fmt.Errorf("transponder_number is too long")
 	}
 	return nil
 }
 
-func (transaction Transaction) Fingerprint() (string, error) {
-	if err := transaction.Validate(); err != nil {
+func validBounded(value string, min, max int) bool {
+	return len(value) >= min && len(value) <= max && identifierPattern.MatchString(value)
+}
+
+func (t Transaction) Fingerprint(typeSets ...map[string]struct{}) (string, error) {
+	allowedTypes := map[string]struct{}{"toll": {}}
+	if len(typeSets) > 0 && typeSets[0] != nil {
+		allowedTypes = typeSets[0]
+	}
+	if err := t.Validate(allowedTypes); err != nil {
 		return "", err
 	}
-
-	canonical := struct {
-		ID           string       `json:"transactionId"`
-		PartnerID    string       `json:"partnerId"`
-		OccurredAt   string       `json:"occurredAt"`
-		AmountMinor  int64        `json:"amountMinor"`
-		Currency     string       `json:"currency"`
-		AgencyID     string       `json:"agencyId"`
-		PlazaID      string       `json:"plazaId"`
-		LaneID       string       `json:"laneId"`
-		VehicleClass VehicleClass `json:"vehicleClass"`
-	}{
-		ID:           transaction.ID,
-		PartnerID:    transaction.PartnerID,
-		OccurredAt:   transaction.OccurredAt.UTC().Format(time.RFC3339Nano),
-		AmountMinor:  transaction.AmountMinor,
-		Currency:     transaction.Currency,
-		AgencyID:     transaction.AgencyID,
-		PlazaID:      transaction.PlazaID,
-		LaneID:       transaction.LaneID,
-		VehicleClass: transaction.VehicleClass,
-	}
-	payload, err := json.Marshal(canonical)
+	payload, err := json.Marshal(t)
 	if err != nil {
-		return "", fmt.Errorf("marshal canonical transaction: %w", err)
+		return "", fmt.Errorf("marshal transaction: %w", err)
 	}
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:]), nil

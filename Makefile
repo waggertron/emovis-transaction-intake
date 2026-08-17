@@ -12,6 +12,9 @@ ENV_FILE ?= .env
 TFVARS ?=
 LOCAL_PARTNER_ID ?= local-partner
 LOCAL_API_KEY ?= local-development-only-key
+LOCAL_AUTH_MODE ?= disabled
+LOCAL_TRANSACTION_TYPES ?= toll
+LOCAL_DEFAULT_CURRENCY ?= USD
 
 .PHONY: help test test-unit test-race test-contract lint format-check vet build build-arm64 image-arm64 run-api run-worker run-local compose-up compose-down compose-config smoke coverage test-component test-component-storage test-component-postgres test-component-dynamodb test-component-kafka test-component-kafka-secure test-component-secrets test-e2e test-e2e-memory test-e2e-ndjson test-e2e-postgres test-e2e-dynamodb test-e2e-secrets test-e2e-kafka-secure test-cloud-equivalence terraform-fmt terraform-init terraform-validate terraform-plan k8s-validate test-infrastructure docs-validate security security-vuln security-secrets security-config security-image validate-static validate clean
 
@@ -58,13 +61,13 @@ image-arm64: ## Build and inspect the production API image for Linux ARM64
 	docker image inspect --format '{{.Architecture}}' $(ARM64_IMAGE) | grep -qx arm64
 
 run-api: ## Run the API process with documented non-production local credentials
-	@if [[ -f "$(ENV_FILE)" ]]; then set -a; source "$(ENV_FILE)"; set +a; fi; PARTNER_ID="$${PARTNER_ID:-$(LOCAL_PARTNER_ID)}" API_KEY="$${API_KEY:-$(LOCAL_API_KEY)}" go run ./cmd/transaction-service api
+	@if [[ -f "$(ENV_FILE)" ]]; then set -a; source "$(ENV_FILE)"; set +a; fi; AUTH_MODE="$${AUTH_MODE:-$(LOCAL_AUTH_MODE)}" TRANSACTION_TYPES="$${TRANSACTION_TYPES:-$(LOCAL_TRANSACTION_TYPES)}" DEFAULT_CURRENCY="$${DEFAULT_CURRENCY:-$(LOCAL_DEFAULT_CURRENCY)}" PARTNER_ID="$${PARTNER_ID:-$(LOCAL_PARTNER_ID)}" API_KEY="$${API_KEY:-$(LOCAL_API_KEY)}" go run ./cmd/transaction-service api
 
 run-worker: ## Run the worker with documented non-production local credentials
-	@if [[ -f "$(ENV_FILE)" ]]; then set -a; source "$(ENV_FILE)"; set +a; fi; PARTNER_ID="$${PARTNER_ID:-$(LOCAL_PARTNER_ID)}" API_KEY="$${API_KEY:-$(LOCAL_API_KEY)}" go run ./cmd/transaction-service worker
+	@if [[ -f "$(ENV_FILE)" ]]; then set -a; source "$(ENV_FILE)"; set +a; fi; AUTH_MODE="$${AUTH_MODE:-$(LOCAL_AUTH_MODE)}" TRANSACTION_TYPES="$${TRANSACTION_TYPES:-$(LOCAL_TRANSACTION_TYPES)}" DEFAULT_CURRENCY="$${DEFAULT_CURRENCY:-$(LOCAL_DEFAULT_CURRENCY)}" PARTNER_ID="$${PARTNER_ID:-$(LOCAL_PARTNER_ID)}" API_KEY="$${API_KEY:-$(LOCAL_API_KEY)}" go run ./cmd/transaction-service worker
 
 run-local: ## Run the combined local API and worker process
-	@if [[ -f "$(ENV_FILE)" ]]; then set -a; source "$(ENV_FILE)"; set +a; fi; PARTNER_ID="$${PARTNER_ID:-$(LOCAL_PARTNER_ID)}" API_KEY="$${API_KEY:-$(LOCAL_API_KEY)}" go run ./cmd/transaction-service local
+	@if [[ -f "$(ENV_FILE)" ]]; then set -a; source "$(ENV_FILE)"; set +a; fi; AUTH_MODE="$${AUTH_MODE:-$(LOCAL_AUTH_MODE)}" TRANSACTION_TYPES="$${TRANSACTION_TYPES:-$(LOCAL_TRANSACTION_TYPES)}" DEFAULT_CURRENCY="$${DEFAULT_CURRENCY:-$(LOCAL_DEFAULT_CURRENCY)}" PARTNER_ID="$${PARTNER_ID:-$(LOCAL_PARTNER_ID)}" API_KEY="$${API_KEY:-$(LOCAL_API_KEY)}" go run ./cmd/transaction-service local
 
 compose-up: ## Build and start the complete local system
 	docker compose -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE) up --build --detach --wait

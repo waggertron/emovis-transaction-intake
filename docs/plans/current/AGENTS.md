@@ -19,7 +19,7 @@ Run numbering, Markdown/link, and diff checks.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| None | No active plan documents remain after the completed storage-selection plan was archived. |
+| `2026-08-17T11-30-00-0700-ingest-contract-implementation.md` | Tracks the supplied OpenAPI ingest-contract migration, test evidence, and PR completion checklist. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

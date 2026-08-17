@@ -18,6 +18,9 @@ type Config struct {
 	Address           string
 	PartnerID         string
 	APIKey            string
+	AuthMode          string
+	DefaultCurrency   string
+	TransactionTypes  map[string]struct{}
 	KafkaBrokers      []string
 	KafkaTopic        string
 	KafkaTLS          bool
@@ -37,6 +40,8 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 		Address:           lookup("HTTP_ADDRESS"),
 		PartnerID:         lookup("PARTNER_ID"),
 		APIKey:            lookup("API_KEY"),
+		AuthMode:          lookup("AUTH_MODE"),
+		DefaultCurrency:   lookup("DEFAULT_CURRENCY"),
 		KafkaTopic:        lookup("KAFKA_TOPIC"),
 		KafkaCAFile:       lookup("KAFKA_CA_FILE"),
 		KafkaSASLUsername: lookup("KAFKA_SASL_USERNAME"),
@@ -51,11 +56,29 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 	if config.Address == "" {
 		config.Address = ":8080"
 	}
-	if config.PartnerID == "" {
-		return Config{}, fmt.Errorf("PARTNER_ID is required")
+	if config.AuthMode == "" {
+		config.AuthMode = "disabled"
 	}
-	if config.APIKey == "" {
-		return Config{}, fmt.Errorf("API_KEY is required")
+	if config.AuthMode != "disabled" && config.AuthMode != "api_key" {
+		return Config{}, fmt.Errorf("AUTH_MODE must be disabled or api_key")
+	}
+	if config.AuthMode == "api_key" && (config.PartnerID == "" || config.APIKey == "") {
+		return Config{}, fmt.Errorf("PARTNER_ID and API_KEY are required when AUTH_MODE=api_key")
+	}
+	if config.DefaultCurrency == "" {
+		config.DefaultCurrency = "USD"
+	}
+	if len(config.DefaultCurrency) != 3 || strings.ToUpper(config.DefaultCurrency) != config.DefaultCurrency {
+		return Config{}, fmt.Errorf("DEFAULT_CURRENCY must be three uppercase letters")
+	}
+	config.TransactionTypes = map[string]struct{}{}
+	for _, item := range strings.Split(lookup("TRANSACTION_TYPES"), ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			config.TransactionTypes[item] = struct{}{}
+		}
+	}
+	if len(config.TransactionTypes) == 0 {
+		config.TransactionTypes["toll"] = struct{}{}
 	}
 	brokers := lookup("KAFKA_BROKERS")
 	if brokers == "" {

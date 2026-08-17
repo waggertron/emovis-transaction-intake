@@ -1,13 +1,13 @@
 # API Contract Instructions
 
 ## Purpose
-Maintain the explicitly repository-owned mock OpenAPI contract.
+Maintain the supplied OpenAPI 3.0.3 ingest contract and documented operational extensions.
 
 ## Scope
 Applies to API description files under `api/`.
 
 ## Local rules
-- Label the contract as mocked because no source specification was supplied.
+- Treat the supplied ingest contract as authoritative; keep operational endpoints explicitly identified as repository extensions.
 - Keep examples, status codes, headers, and schemas aligned with handler tests.
 - Document method and media-type rejection and validate the document through a parsed semantic contract.
 

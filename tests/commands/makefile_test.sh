@@ -56,7 +56,7 @@ for template in .env.local.example .env.production.example; do
 done
 grep -Fxq '.env*' .gitignore || { echo ".gitignore must exclude every dotenv variant" >&2; exit 1; }
 grep -Fxq '!.env*.example' .gitignore || { echo ".gitignore must retain dotenv example templates" >&2; exit 1; }
-for variable in HTTP_ADDRESS PARTNER_ID API_KEY KAFKA_BROKERS KAFKA_TOPIC KAFKA_TLS KAFKA_CA_FILE KAFKA_SASL_USERNAME KAFKA_SASL_PASSWORD STORE_DRIVER STORE_PATH POSTGRES_URL DYNAMODB_ENDPOINT AWS_REGION DYNAMODB_TABLE LOCAL_SECRET_FILE AWS_SECRET_ID KAFKA_TOPIC_PARTITIONS KAFKA_TOPIC_REPLICATION KAFKA_TOPIC_RETENTION; do
+for variable in HTTP_ADDRESS PARTNER_ID API_KEY AUTH_MODE TRANSACTION_TYPES DEFAULT_CURRENCY KAFKA_BROKERS KAFKA_TOPIC KAFKA_TLS KAFKA_CA_FILE KAFKA_SASL_USERNAME KAFKA_SASL_PASSWORD STORE_DRIVER STORE_PATH POSTGRES_URL DYNAMODB_ENDPOINT AWS_REGION DYNAMODB_TABLE LOCAL_SECRET_FILE AWS_SECRET_ID KAFKA_TOPIC_PARTITIONS KAFKA_TOPIC_REPLICATION KAFKA_TOPIC_RETENTION; do
   grep -Eq "^${variable}=" .env.local.example .env.production.example || {
     echo "environment templates do not describe: ${variable}" >&2
     exit 1
