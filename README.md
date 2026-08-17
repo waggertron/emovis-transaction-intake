@@ -23,14 +23,13 @@ curl --fail http://127.0.0.1:8080/healthz
 curl --fail http://127.0.0.1:8080/readyz
 ```
 
-The local stack starts Kafka, creates the topic, and starts the API plus worker. The local credentials are intentionally fixed test values:
+The local stack starts Kafka, creates the topic, and starts the API plus worker. For local requests, send only the API key:
 
 ```text
-partner: local-partner
-API key: local-development-only-key
+X-API-Key: local-development-only-key
 ```
 
-There is no API-key service to call. This key is only for local development and tests; never deploy it.
+You do not send a `partnerId` in the request. The service maps this local key to the partner `local-partner`. There is no API-key service to call. This key is only for local development and tests; never deploy it.
 
 Send a transaction:
 
