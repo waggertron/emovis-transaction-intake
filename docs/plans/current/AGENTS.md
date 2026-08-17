@@ -19,7 +19,7 @@ Run numbering, Markdown/link, and diff checks.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `2026-08-17T11-30-00-0700-ingest-contract-implementation.md` | Tracks the supplied OpenAPI ingest-contract migration, test evidence, and PR completion checklist. |
+| None | No active plan documents remain after the completed ingest-contract plan was archived. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).
