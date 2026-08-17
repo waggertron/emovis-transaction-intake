@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -111,6 +112,16 @@ func TestPostTransactionErrors(t *testing.T) {
 			}
 			if strings.Contains(recorder.Body.String(), "database unavailable") {
 				t.Fatal("internal dependency detail leaked to client")
+			}
+			var response struct {
+				Error struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+				RequestID string `json:"requestId"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.Error.Code == "" || response.Error.Message == "" || response.RequestID == "" {
+				t.Fatalf("error body does not satisfy OpenAPI Error schema: %#v err=%v", response, err)
 			}
 		})
 	}

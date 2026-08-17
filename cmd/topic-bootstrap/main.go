@@ -15,8 +15,9 @@ import (
 )
 
 type topicSettings struct {
-	Broker string
-	Topic  kafkaadapter.TopicConfig
+	Broker   string
+	Topic    kafkaadapter.TopicConfig
+	Security kafkaadapter.SecurityConfig
 }
 
 type kafkaConnection interface {
@@ -51,9 +52,24 @@ func loadTopicSettings(lookup func(string) string) (topicSettings, error) {
 			return topicSettings{}, fmt.Errorf("KAFKA_TOPIC_RETENTION must be a positive duration")
 		}
 	}
+	secure := kafkaadapter.SecurityConfig{
+		CAFile: lookup("KAFKA_CA_FILE"), SASLUsername: lookup("KAFKA_SASL_USERNAME"), SASLPassword: lookup("KAFKA_SASL_PASSWORD"),
+	}
+	if raw := lookup("KAFKA_TLS"); raw != "" {
+		secure.TLS, err = strconv.ParseBool(raw)
+		if err != nil {
+			return topicSettings{}, fmt.Errorf("KAFKA_TLS must be a boolean: %w", err)
+		}
+	}
+	if (secure.SASLUsername == "") != (secure.SASLPassword == "") {
+		return topicSettings{}, fmt.Errorf("Kafka SASL username and password must be provided together")
+	}
+	if (secure.SASLUsername != "" || secure.CAFile != "") && !secure.TLS {
+		return topicSettings{}, fmt.Errorf("Kafka SASL and CA configuration require TLS")
+	}
 	return topicSettings{Broker: broker, Topic: kafkaadapter.TopicConfig{
 		Name: name, Partitions: partitions, ReplicationFactor: replication, Retention: retention,
-	}}, nil
+	}, Security: secure}, nil
 }
 
 func positiveInteger(raw string, fallback int) (int, error) {
@@ -110,9 +126,32 @@ func runCLI(lookup func(string) string, dial kafkaDial) error {
 	return nil
 }
 
-func realKafkaDial(ctx context.Context, network, address string) (kafkaConnection, error) {
-	dialer := &kafkago.Dialer{Timeout: 10 * time.Second}
-	return dialer.DialContext(ctx, network, address)
+func secureKafkaDial(settings topicSettings) (kafkaDial, error) {
+	dialer, err := kafkaadapter.NewDialer(settings.Security)
+	if err != nil {
+		return nil, fmt.Errorf("configure Kafka connection: %w", err)
+	}
+	return func(ctx context.Context, network, address string) (kafkaConnection, error) {
+		return dialer.DialContext(ctx, network, address)
+	}, nil
+}
+
+func runProductionCLI(lookup func(string) string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	settings, err := loadTopicSettings(lookup)
+	if err != nil {
+		return err
+	}
+	dial, err := secureKafkaDial(settings)
+	if err != nil {
+		return err
+	}
+	if err := runTopicBootstrap(ctx, settings, dial); err != nil {
+		return err
+	}
+	slog.Info("Kafka topic ready", "topic", settings.Topic.Name)
+	return nil
 }
 
 func exitCode(err error) int {
@@ -124,5 +163,5 @@ func exitCode(err error) int {
 }
 
 func main() {
-	os.Exit(exitCode(runCLI(os.Getenv, realKafkaDial)))
+	os.Exit(exitCode(runProductionCLI(os.Getenv)))
 }

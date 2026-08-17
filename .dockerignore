@@ -2,5 +2,9 @@
 .local
 tmp
 coverage
+**/.terraform
+*.tfplan
+*.tfstate
+*.tfstate.*
 .env
 *.out

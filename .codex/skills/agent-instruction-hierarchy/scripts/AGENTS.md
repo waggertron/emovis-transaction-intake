@@ -20,6 +20,7 @@ Run unit tests, then the repository hierarchy check.
 | Element | Behavior |
 | --- | --- |
 | `validate_hierarchy.py` | Checks coverage, sections, elements, and links. |
+| `validate_hierarchy_test.py` | Exercises missing files/sections, parsed element rows, and reciprocal links. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

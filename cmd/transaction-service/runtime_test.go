@@ -18,12 +18,40 @@ import (
 func TestNewStoreSelectsMemory(t *testing.T) {
 	t.Parallel()
 
-	store, err := newStore(bootstrap.ModeLocal, bootstrap.Config{StoreDriver: "memory"})
+	store, err := newStore(context.Background(), bootstrap.ModeLocal, bootstrap.Config{StoreDriver: "memory"})
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
 	}
-	if _, ok := store.(*memory.Store); !ok {
+	defer store.Close()
+	if _, ok := store.TransactionStore.(*memory.Store); !ok {
 		t.Fatalf("expected memory store, got %T", store)
+	}
+}
+
+func TestStoreHandleClosesOwnedResourceAndDynamoLocalConfigUsesStaticCredentials(t *testing.T) {
+	t.Parallel()
+	want := errors.New("close failed")
+	store := &storeHandle{TransactionStore: memory.NewStore(), close: func() error { return want }}
+	if err := store.Close(); !errors.Is(err, want) {
+		t.Fatalf("close result: %v", err)
+	}
+	config, err := dynamoConfig(context.Background(), bootstrap.Config{DynamoEndpoint: "http://localhost:8000", DynamoRegion: "us-west-2"})
+	if err != nil || config.Region != "us-west-2" || config.Credentials == nil {
+		t.Fatalf("local Dynamo config: %#v %v", config, err)
+	}
+}
+
+func TestDynamoCloudConfigUsesTheDefaultAWSCredentialChain(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "local-test-access-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "local-test-secret-key")
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	config, err := dynamoConfig(context.Background(), bootstrap.Config{DynamoRegion: "us-east-2"})
+	if err != nil || config.Region != "us-east-2" || config.Credentials == nil {
+		t.Fatalf("cloud Dynamo config: %#v %v", config, err)
+	}
+	credentials, err := config.Credentials.Retrieve(context.Background())
+	if err != nil || credentials.AccessKeyID != "local-test-access-key" {
+		t.Fatalf("default credentials: %#v %v", credentials, err)
 	}
 }
 
@@ -143,6 +171,11 @@ func TestWorkerLoopStopsOnCancellationAndWrapsStoreFailure(t *testing.T) {
 	if err := runWorkerLoop(context.Background(), failing); !errors.Is(err, want) {
 		t.Fatalf("expected wrapped store failure, got %v", err)
 	}
+	canceledFailure, cancelFailure := context.WithCancel(context.Background())
+	cancelFailure()
+	if err := runWorkerLoop(canceledFailure, failing); err != nil {
+		t.Fatalf("canceled dependency failure should stop cleanly: %v", err)
+	}
 }
 
 func TestNewDispatcherAcceptsLocalPlaintextConfiguration(t *testing.T) {
@@ -163,14 +196,14 @@ func TestNewStoreReportsDirectoryAndLogFailures(t *testing.T) {
 	if err := os.WriteFile(parentFile, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newStore(bootstrap.ModeLocal, bootstrap.Config{StoreDriver: "ndjson", StorePath: filepath.Join(parentFile, "state.ndjson")}); err == nil {
+	if _, err := newStore(context.Background(), bootstrap.ModeLocal, bootstrap.Config{StoreDriver: "ndjson", StorePath: filepath.Join(parentFile, "state.ndjson")}); err == nil {
 		t.Fatal("expected directory creation failure")
 	}
 	malformed := filepath.Join(root, "malformed.ndjson")
 	if err := os.WriteFile(malformed, []byte("not-json\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newStore(bootstrap.ModeLocal, bootstrap.Config{StoreDriver: "ndjson", StorePath: malformed}); err == nil {
+	if _, err := newStore(context.Background(), bootstrap.ModeLocal, bootstrap.Config{StoreDriver: "ndjson", StorePath: malformed}); err == nil {
 		t.Fatal("expected malformed store failure")
 	}
 }
@@ -179,14 +212,31 @@ func TestNewStoreSelectsNDJSONOnlyForCombinedLocal(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "state", "transactions.ndjson")
-	store, err := newStore(bootstrap.ModeLocal, bootstrap.Config{StoreDriver: "ndjson", StorePath: path})
+	store, err := newStore(context.Background(), bootstrap.ModeLocal, bootstrap.Config{StoreDriver: "ndjson", StorePath: path})
 	if err != nil {
 		t.Fatalf("new NDJSON store: %v", err)
 	}
-	if _, ok := store.(*ndjson.Store); !ok {
+	defer store.Close()
+	if _, ok := store.TransactionStore.(*ndjson.Store); !ok {
 		t.Fatalf("expected NDJSON store, got %T", store)
 	}
-	if _, err := newStore(bootstrap.ModeAPI, bootstrap.Config{StoreDriver: "ndjson", StorePath: path}); err == nil {
+	if _, err := newStore(context.Background(), bootstrap.ModeAPI, bootstrap.Config{StoreDriver: "ndjson", StorePath: path}); err == nil {
 		t.Fatal("expected separate API NDJSON store to fail")
+	}
+}
+
+func TestNewStoreRejectsUnavailablePostgresAndDynamoDB(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := newStore(ctx, bootstrap.ModeAPI, bootstrap.Config{
+		StoreDriver: "postgres", PostgresURL: "postgres://user:password@127.0.0.1:1/transactions?sslmode=disable&connect_timeout=1",
+	}); err == nil {
+		t.Fatal("expected unavailable PostgreSQL failure")
+	}
+	if _, err := newStore(ctx, bootstrap.ModeAPI, bootstrap.Config{
+		StoreDriver: "dynamodb", DynamoEndpoint: "http://127.0.0.1:1", DynamoRegion: "us-west-2", DynamoTable: "transactions",
+	}); err == nil {
+		t.Fatal("expected unavailable DynamoDB failure")
 	}
 }

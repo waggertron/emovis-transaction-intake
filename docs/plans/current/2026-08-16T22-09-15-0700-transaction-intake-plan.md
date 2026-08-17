@@ -34,6 +34,18 @@
 - **User — Provision both DynamoDB and RDS PostgreSQL.** EKS selects the active store through configuration.
 - **Codex recommendation, accepted by User — Use `pgx` through `database/sql` and `sqlmock` for test-first PostgreSQL adapter development.**
 - **Codex recommendation, accepted by User — Use MSK TLS + SASL/SCRAM credentials from AWS Secrets Manager.**
+- **Codex — Serialize PostgreSQL runtime schema bootstrap.** Separate API and worker processes can start concurrently, so run the idempotent schema inside a transaction guarded by a transaction-scoped PostgreSQL advisory lock; this prevents catalog races while retaining local startup convenience.
+- **Codex — Treat concurrent DynamoDB table creation as readiness, not failure.** When separate processes both observe a missing local table, the process receiving `ResourceInUseException` waits for the shared table to become active while all other create failures remain fatal.
+- **Codex — Preserve Kafka certificate and hostname verification locally.** The secure Kafka substitute generates ephemeral TLS material, exposes only its CA certificate to non-root Go clients, uses SCRAM-SHA-512 over `SASL_SSL`, and never disables verification to make the test pass.
+- **Codex — Let explicit environment values override local secret-provider values.** The bounded JSON provider fills missing configuration only, reloads on each process start for rotation-shaped tests, and rejects absent, malformed, empty, or oversized input without including secret contents in errors.
+- **Codex — Keep infrastructure validation non-applying and credential-free.** Terraform uses a backend-disabled, mock-provider validation mode for format, schema, and `-refresh=false` planning; Kubernetes manifests render through an isolated local kustomization instead of consulting the user's active cluster context.
+- **Codex — Use private EKS and service-account-scoped workload identity.** Disable the public EKS endpoint, place workloads/data services in private subnets, and scope the workload role's web-identity trust to the `transaction-intake/transaction-intake` service account rather than allowing node-role inheritance.
+- **2026-08-17 — Codex — Load application secrets directly through IRSA.** Use the production AWS Secrets Manager adapter from the API/worker composition root, keep explicit environment values higher precedence, reject simultaneous local/cloud providers, and remove the application workloads' dependency on an unspecified Kubernetes secret-sync controller; retain a broker-side SCRAM secret for MSK authentication.
+- **2026-08-17 — Codex — Bound workload scaling and voluntary disruption.** Give API and worker separate CPU-based autoscaling bounds, five-minute scale-down stabilization, resource requests/limits, and PodDisruptionBudgets that preserve at least one replica; validate these properties from the offline rendered manifest set.
+- **2026-08-17 — Codex — Treat unit and component coverage as separate evidence.** Retain the independent 85% production-package unit floor, instrument real PostgreSQL/DynamoDB/secret component paths separately, and publish behavioral reports for broker-backed paths where an aggregate Go statement percentage would be misleading.
+- **2026-08-17 — Codex — Remediate security findings before handoff.** Upgrade the local/container Go toolchain and vulnerable text dependency, enable RDS IAM authentication and encrypted VPC flow logs, default deletion protection on, exclude Terraform caches from image contexts, and add pinned vulnerability/secret/IaC/image gates to Make and CI.
+- **2026-08-17 — Codex — Model topic bootstrap as a conditionally deployed Terraform Job.** Parameterize topic name, partitions, replication, retention, and immutable image; make the real EKS Job depend on MSK SCRAM association while setting its count to zero in credential-free local validation.
+- **2026-08-17 — Joint architecture constraint applied to cloud equivalence.** Preserve the accepted single-store deployment rule: the cloud-equivalence gate must run PostgreSQL and DynamoDB as independent selected-store scenarios, plus local-secret and secure-Kafka scenarios, rather than inventing an unsupported dual-store/dual-write process.
 - **User — Maintain all decisions in the current plan.** This plan begins with Decision Notes; a repo skill will append every later material decision.
 
 ## Architecture
@@ -63,64 +75,64 @@ Kafka publishes `transaction.review-candidates.v1` events with `eventId`, event 
 
 ### Cross-cutting test and validation rules
 
-- [ ] **0.1** Record the focused test name, its expected initial failure, implementation change, and passing rerun for every production behavior; retain this red-green evidence instead of attempting to rerun historical pre-implementation failures from the finished repository.
+- [x] **0.1** Record the focused test name, its expected initial failure, implementation change, and passing rerun for every production behavior; retain this red-green evidence instead of attempting to rerun historical pre-implementation failures from the finished repository.
 - [x] **0.2** Keep unit tests deterministic: inject clocks, IDs, storage, Kafka clients, and configuration sources; do not require network, cloud credentials, or running containers.
-- [ ] **0.3** Maintain separate, named valid and invalid fixtures; test fixture validity itself so helpers cannot conceal contract violations.
-- [ ] **0.4** Run unit tests before adapter, integration, smoke, security, or manual checks; none of those later checks substitute for the initial failing unit test.
-- [ ] **0.5** Use a local/mock adapter for every external boundary. Do not require an AWS account, cloud credentials, or a remote environment for product test, validation, smoke-check, or acceptance evidence; GitHub publication and hosted CI verification are separate external handoff checks.
+- [x] **0.3** Maintain separate, named valid and invalid fixtures; test fixture validity itself so helpers cannot conceal contract violations.
+- [x] **0.4** Run unit tests before adapter, integration, smoke, security, or manual checks; none of those later checks substitute for the initial failing unit test.
+- [x] **0.5** Use a local/mock adapter for every external boundary. Do not require an AWS account, cloud credentials, or a remote environment for product test, validation, smoke-check, or acceptance evidence; GitHub publication and hosted CI verification are separate external handoff checks.
 - [x] **0.6** Provide deterministic unit fakes for the DynamoDB, PostgreSQL/RDS, and Kafka/MSK boundaries.
 - [x] **0.7** Preserve all test logs, Compose artifacts, and temporary data under self-cleaning test paths; do not leave containers, volumes, ports, or fixture files after validation.
 - [x] **0.8** Treat `AGENTS.md` as required repository documentation for every authored directory; exclude only Git internals, dependency/vendor directories, generated caches, and test/runtime artifacts.
 - [x] **0.9** Treat the Makefile as the canonical local command interface. Its targets must fail fast, avoid hidden interactive behavior, print actionable errors, and be safe to run repeatedly; no README, CI, or `AGENTS.md` command may bypass it for a supported workflow.
 - [x] **0.10** Generate one canonical coverage profile through `make coverage`; enforce at least 85% statement coverage independently for every production Go package, including command packages, and fail if any package falls below the threshold rather than allowing high-coverage packages to hide a weak package in an aggregate percentage.
-- [ ] **0.11** Treat the percentage as a floor, not proof of correctness. Maintain a reviewed behavior-to-test matrix covering validation/error branches, idempotency, atomic persistence, lease races/expiry, retry/terminal transitions, authentication, body limits, redaction, graceful shutdown, and dependency failures; every critical behavior requires an explicit assertion even when the numerical threshold already passes.
-- [ ] **0.12** Separate deterministic unit coverage from component coverage. Unit coverage runs without network or containers; component coverage uses the production adapter against the real local substitute and proves observable behavior and failure handling rather than only checking configuration, SQL strings, fake-client calls, or file contents.
+- [x] **0.11** Treat the percentage as a floor, not proof of correctness. Maintain a reviewed behavior-to-test matrix covering validation/error branches, idempotency, atomic persistence, lease races/expiry, retry/terminal transitions, authentication, body limits, redaction, graceful shutdown, and dependency failures; every critical behavior requires an explicit assertion even when the numerical threshold already passes.
+- [x] **0.12** Separate deterministic unit coverage from component coverage. Unit coverage runs without network or containers; component coverage uses the production adapter against the real local substitute and proves observable behavior and failure handling rather than only checking configuration, SQL strings, fake-client calls, or file contents.
 - [x] **0.13** Publish human-readable per-package unit-coverage evidence under the self-cleaning `.local/coverage/` path and keep generated raw profiles untracked.
-- [ ] **0.14** Provide a deterministic local substitute or fake for AWS Secrets Manager.
-- [ ] **0.15** Provide locally validated Kubernetes/EKS configuration without requiring a cluster or AWS credentials.
-- [ ] **0.16** Publish human-readable component-coverage evidence under a self-cleaning local artifact path.
-- [ ] **0.17** Summarize final unit and component coverage results in the security review.
+- [x] **0.14** Provide a deterministic local substitute or fake for AWS Secrets Manager.
+- [x] **0.15** Provide locally validated Kubernetes/EKS configuration without requiring a cluster or AWS credentials.
+- [x] **0.16** Publish human-readable component-coverage evidence under a self-cleaning local artifact path.
+- [x] **0.17** Summarize final unit and component coverage results in the security review.
 
 ### 1. Repository and decision foundation
 
 - [x] **1.1** Initialize Git and set default branch `main`.
 - [x] **1.2** Create this timestamped plan under `docs/plans/current/` with these Decision Notes and checklist.
 - [x] **1.3** Create and validate the repository-local `$tdd-development` skill; require it for all planning and implementation work.
-- [ ] **1.4** Create and validate `$record-plan-decisions` under `.codex/skills/`; append every material user, Codex, or joint decision with date, attribution, rationale, impact, and supersession.
+- [x] **1.4** Create and validate `$record-plan-decisions` under `.codex/skills/`; append every material user, Codex, or joint decision with date, attribution, rationale, impact, and supersession.
 - [x] **1.5** Define the `AGENTS.md` template: purpose, scope, local rules, usage, validation commands, an `## Elements` table that names every direct repository-owned child and explains its behavior, and a `## Instruction hierarchy` section.
 - [x] **1.6** Require `## Instruction hierarchy` to link to the nearest parent `AGENTS.md` and every immediate child-directory `AGENTS.md`; the root file explicitly states that it has no parent.
 - [x] **1.7** Add a root `AGENTS.md` requiring decision recording, test-first development, local-only confirmation, and compliance with the directory-level instruction policy.
 - [x] **1.8** Add an `AGENTS.md` to every currently authored directory and pass the hierarchy validator.
-- [ ] **1.9** Specify the agent-instruction validator's acceptance cases before implementation: missing instructions, missing required sections, malformed or incomplete `## Elements` tables, unresolved links, and parent/child links that do not agree in both directions.
-- [ ] **1.10** Add a manual behavior-confirmation checklist: review each `AGENTS.md` against its directory, verify every named element's behavior is accurate, and record the reviewer/date before marking the directory complete.
+- [x] **1.9** Specify the agent-instruction validator's acceptance cases before implementation: missing instructions, missing required sections, malformed or incomplete `## Elements` tables, unresolved links, and parent/child links that do not agree in both directions.
+- [x] **1.10** Add a manual behavior-confirmation checklist: review each `AGENTS.md` against its directory, verify every named element's behavior is accurate, and record the reviewer/date before marking the directory complete.
 - [x] **1.11** Add ADRs for the portable storage/outbox architecture and Kafka/MSK delivery choice.
-- [ ] **1.12** Validate every repository skill with `quick_validate.py`; verify its trigger description and default prompt match its instructions.
+- [x] **1.12** Validate every repository skill with `quick_validate.py`; verify its trigger description and default prompt match its instructions.
 - [x] **1.13** Validate plan and documentation edits with `git diff --check`.
 - [ ] **1.14** Smoke-test a fresh repository checkout after the full instruction hierarchy is present: confirm every authored directory includes a valid `AGENTS.md`, and that plans, skills, code, deployment, and infrastructure instructions are discoverable without generated or local-only artifacts.
-- [ ] **1.15** Define the Makefile target contract before implementation: `help`, `test`, `test-unit`, `lint`, `format-check`, `vet`, `build`, `run-api`, `run-worker`, `run-local`, `compose-up`, `compose-down`, `smoke`, `validate`, and `clean`. Document target inputs, outputs, prerequisites, cleanup behavior, and which targets may start containers.
-- [ ] **1.16** Add an `AGENTS.md` to each future deployment, infrastructure, security, component-test, or other authored directory as it is introduced.
-- [ ] **1.17** Validate all Markdown and repository-relative links with an automated link checker.
+- [x] **1.15** Define the Makefile target contract before implementation: `help`, `test`, `test-unit`, `lint`, `format-check`, `vet`, `build`, `run-api`, `run-worker`, `run-local`, `compose-up`, `compose-down`, `smoke`, `validate`, and `clean`. Document target inputs, outputs, prerequisites, cleanup behavior, and which targets may start containers.
+- [x] **1.16** Add an `AGENTS.md` to each future deployment, infrastructure, security, component-test, or other authored directory as it is introduced.
+- [x] **1.17** Validate all Markdown and repository-relative links with an automated link checker.
 
 ### 2. Tests before implementation
 
 - [x] **2.1** Initialize only the Go module and test harness.
-- [ ] **2.2** For every behavior, run the newly written focused test and confirm its expected failure before adding production code; rerun it after the smallest implementation and confirm it passes.
+- [x] **2.2** For every behavior, run the newly written focused test and confirm its expected failure before adding production code; rerun it after the smallest implementation and confirm it passes.
 - [x] **2.3** Write failing domain tests for IDs, timestamps, toll amount, currency, location, vehicle class, and normalized payload fingerprinting.
 - [x] **2.4** Write failing application tests for acceptance, identical replay, changed duplicate conflict, store failure, atomic outbox creation, claim lease, retry, terminal failure, and consumer-safe event IDs.
-- [ ] **2.5** Write a reusable `TransactionStore` contract suite and run it against memory, NDJSON, DynamoDB-client fake, and PostgreSQL/sqlmock adapters.
+- [x] **2.5** Write a reusable `TransactionStore` contract suite and run it against memory, NDJSON, DynamoDB-client fake, and PostgreSQL/sqlmock adapters.
 - [x] **2.6** Write failing HTTP tests for all documented success/error responses, health, readiness, metrics, and API-key authentication.
 - [x] **2.7** Write failing Kafka publisher tests for key, event envelope, TLS/SASL configuration mapping, and publish failure handling.
 - [x] **2.8** Write failing tests for `topic-bootstrap`: topic creation, idempotent re-run, partition/retention configuration, missing broker configuration, and safe error reporting.
-- [ ] **2.9** Write failing tests for the agent-instruction validator: coverage, required sections, parsed `## Elements` table coverage, parent links, child links, reciprocal links, and broken relative links.
-- [ ] **2.10** Add explicit valid and invalid fixtures; invalid fixtures must never be repaired by test helpers.
-- [ ] **2.11** Add tests for the test helpers/factories themselves, proving valid values stay within contract bounds and invalid modes remain invalid.
-- [ ] **2.12** Validate test isolation: run the unit suite repeatedly and verify no test depends on execution order, wall-clock time, network, Docker, or ambient cloud credentials.
-- [ ] **2.13** Smoke-test the test harness from a clean module cache/checkout and verify the first planned test fails before production code exists.
+- [x] **2.9** Write failing tests for the agent-instruction validator: coverage, required sections, parsed `## Elements` table coverage, parent links, child links, reciprocal links, and broken relative links.
+- [x] **2.10** Add explicit valid and invalid fixtures; invalid fixtures must never be repaired by test helpers.
+- [x] **2.11** Add tests for the test helpers/factories themselves, proving valid values stay within contract bounds and invalid modes remain invalid.
+- [x] **2.12** Validate test isolation: run the unit suite repeatedly and verify no test depends on execution order, wall-clock time, network, Docker, or ambient cloud credentials.
+- [x] **2.13** Smoke-test the test harness from a clean module cache/checkout and verify the first planned test fails before production code exists.
 - [x] **2.14** Write failing command-contract tests that verify every required Make target exists, `help` documents it, and the documented target-to-command mapping does not bypass the Makefile.
 - [x] **2.15** Write failing container-definition tests that verify Docker build targets exist for the API, worker, combined-local service, and topic bootstrapper, and that Compose declares a complete local system with no undeclared external dependency.
 - [x] **2.16** Add failing tests for the coverage gate itself: missing package data, any production package below 85%, excluded production source, stale profiles, and a false aggregate pass where one package remains below threshold.
 - [x] **2.17** Add focused tests that raise `cmd/topic-bootstrap` and `cmd/transaction-service` to the same 85% per-package floor, including startup composition, dependency-construction failures, worker cancellation, server shutdown, and safe error paths; do not omit command code from the profile.
-- [ ] **2.18** Create the reviewed behavior-to-test matrix and reconcile it against test names and component scenarios; add a missing behavioral test before marking any package covered.
+- [x] **2.18** Create the reviewed behavior-to-test matrix and reconcile it against test names and component scenarios; add a missing behavioral test before marking any package covered.
 
 ### 3. Contract and service code
 
@@ -131,19 +143,19 @@ Kafka publishes `transaction.review-candidates.v1` events with `eventId`, event 
 - [x] **3.5** Implement memory, NDJSON, DynamoDB, and PostgreSQL storage adapters behind `TransactionStore`.
 - [x] **3.6** Implement Kafka publisher with `kafka-go`; use a deterministic mock publisher for unit tests.
 - [x] **3.7** Implement the tested `topic-bootstrap` command and use it from local Compose.
-- [ ] **3.8** Implement the agent-instruction validator only enough to pass its prewritten tests; parse Markdown tables and resolve links rather than searching for arbitrary text.
+- [x] **3.8** Implement the agent-instruction validator only enough to pass its prewritten tests; parse Markdown tables and resolve links rather than searching for arbitrary text.
 - [x] **3.9** Implement API, worker, and combined-local commands from one composition root.
 - [x] **3.10** Refactor only while the full suite remains green.
 - [x] **3.11** Validate that the OpenAPI document contains the intended paths, fields, statuses, authentication header, and idempotent-replay header.
 - [x] **3.12** Validate memory, NDJSON, DynamoDB-fake, and PostgreSQL/sqlmock adapters with adapter-specific tests for acceptance, duplicate behavior, outbox lifecycle, and failures.
-- [ ] **3.13** Validate security behavior with tests for missing/incorrect API keys, secret-redacted logs, malformed input limits, request IDs, and no PII in Kafka envelopes.
-- [ ] **3.14** Add in-process HTTP smoke tests for `/healthz`, `/readyz`, `/metrics`, new acceptance, identical replay, changed duplicate conflict, and a non-blocking review failure.
+- [x] **3.13** Validate security behavior with tests for missing/incorrect API keys, secret-redacted logs, malformed input limits, request IDs, and no PII in Kafka envelopes.
+- [x] **3.14** Add in-process HTTP smoke tests for `/healthz`, `/readyz`, `/metrics`, new acceptance, identical replay, changed duplicate conflict, and a non-blocking review failure.
 - [x] **3.15** Run static validation after each green suite: `go test ./...`, race-enabled tests where applicable, `go vet ./...`, and formatting checks.
 - [x] **3.16** Implement the Makefile only enough to pass the prewritten command-contract tests. Route all supported build, test, run, Compose, smoke, validation, and cleanup workflows through explicit strict targets.
 - [x] **3.17** Implement Dockerfile build targets and Compose wiring only enough to pass the prewritten container-definition tests; build API, worker, combined-local, and topic-bootstrap images reproducibly from the repository.
-- [ ] **3.18** Deploy the tested topic-bootstrap behavior as the post-MSK Terraform/EKS Job.
-- [ ] **3.19** Validate every OpenAPI example, status, header, and error body against live HTTP handler behavior rather than structural text checks alone.
-- [ ] **3.20** Create and run one reusable `TransactionStore` behavioral contract suite against all four storage adapters.
+- [x] **3.18** Deploy the tested topic-bootstrap behavior as the post-MSK Terraform/EKS Job.
+- [x] **3.19** Validate every OpenAPI example, status, header, and error body against live HTTP handler behavior rather than structural text checks alone.
+- [x] **3.20** Create and run one reusable `TransactionStore` behavioral contract suite against all four storage adapters.
 
 ### 4. Local Kafka environment
 
@@ -151,64 +163,64 @@ Kafka publishes `transaction.review-candidates.v1` events with `eventId`, event 
 - [x] **4.2** Support local memory storage for fast runs and NDJSON storage for restart/replay demonstration; keep file mode single-process.
 - [x] **4.3** Configure the local worker to publish review-candidate events to Compose Kafka.
 - [x] **4.4** Add Compose smoke tests for valid acceptance, idempotent replay, outbox publication, and inspectable Kafka event output.
-- [ ] **4.5** Add a PostgreSQL Compose test profile solely for the PostgreSQL adapter integration suite.
+- [x] **4.5** Add a PostgreSQL Compose test profile solely for the PostgreSQL adapter integration suite.
 - [x] **4.6** Validate Compose definitions with `docker compose config --quiet` before starting containers.
-- [ ] **4.7** Add a Kafka integration test that consumes the published event and verifies topic, stable key, event ID, schema version, safe payload, and duplicate-safe retry behavior.
-- [ ] **4.8** Add a secure-Kafka Compose profile using TLS and SASL/SCRAM test credentials so the MSK connection posture is smoke-tested locally without AWS secrets.
-- [ ] **4.9** Add a PostgreSQL integration test that verifies schema migration, unique partner/transaction constraint, SQL transaction rollback, and lease/claim concurrency against the Compose database.
-- [ ] **4.10** Add a DynamoDB Local Compose profile and run the shared `TransactionStore` contract suite against the real DynamoDB adapter locally.
-- [ ] **4.11** Smoke-test memory and NDJSON combined-local modes independently, including restart/rebuild behavior for NDJSON and configuration rejection for unsafe separate file-store roles.
+- [x] **4.7** Add a Kafka integration test that consumes the published event and verifies topic, stable key, event ID, schema version, safe payload, and duplicate-safe retry behavior.
+- [x] **4.8** Add a secure-Kafka Compose profile using TLS and SASL/SCRAM test credentials so the MSK connection posture is smoke-tested locally without AWS secrets.
+- [x] **4.9** Add a PostgreSQL integration test that verifies schema migration, unique partner/transaction constraint, SQL transaction rollback, and lease/claim concurrency against the Compose database.
+- [x] **4.10** Add a DynamoDB Local Compose profile and run the shared `TransactionStore` contract suite against the real DynamoDB adapter locally.
+- [x] **4.11** Smoke-test memory and NDJSON combined-local modes independently, including restart/rebuild behavior for NDJSON and configuration rejection for unsafe separate file-store roles.
 - [x] **4.12** Verify smoke teardown removes the stack's containers and temporary test files and assert `docker ps` is clean afterward.
 - [x] **4.13** Verify `make compose-up` starts the complete local system and `make compose-down` removes only this system's resources; verify `make smoke` exercises the documented transaction path through Compose.
-- [ ] **4.14** Verify `make run-api`, `make run-worker`, and `make run-local` each select the intended executable mode with explicit configuration and do not silently substitute a different component.
-- [ ] **4.15** Add `make test-component-kafka` and prove topic bootstrap, production publisher serialization/keying, real broker publication/consumption, idempotent intake producing one event, retry-safe duplicate delivery, and broker-unavailable failure behavior against local Kafka.
-- [ ] **4.16** Add `make test-component-kafka-secure` and prove the production client connects with TLS plus SASL/SCRAM, rejects absent/incorrect credentials and untrusted certificates, publishes/consumes successfully with valid credentials, and cleans generated test certificates and credentials.
-- [ ] **4.17** Add `make test-component-postgres` and run the production PostgreSQL adapter against Compose PostgreSQL, proving schema bootstrap, atomic accept-plus-outbox, replay/conflict, rollback, concurrent lease exclusion, lease expiry, retry, terminal failure, publication, restart persistence, and database-unavailable behavior.
-- [ ] **4.18** Add `make test-component-dynamodb` and run the production DynamoDB adapter against DynamoDB Local, proving table/GSI bootstrap, transactional accept-plus-outbox, replay/conflict, conditional-write races, conditional lease exclusion, lease expiry, retry, terminal failure, publication/index removal, restart persistence, and service-unavailable behavior.
-- [ ] **4.19** Add `make test-component-secrets` and run the production secret-provider abstraction against the local substitute, proving initial lookup, absent/malformed secret rejection, rotation-shaped reload, least-secret exposure, redacted errors/logs, and provider-unavailable behavior.
-- [ ] **4.20** Add `make test-component-storage` to run the shared transaction/outbox behavioral contract against memory, NDJSON, real local PostgreSQL, and real DynamoDB Local; record the same behavior matrix for every adapter and permit only explicitly documented capability differences.
-- [ ] **4.21** Add `make test-component` as the aggregate local external-service gate. It must run every component target, then the combined cloud-equivalence smoke path, fail if any target was skipped or passed only against a fake, and verify complete teardown afterward.
-- [ ] **4.22** Explicitly verify component teardown removes project volumes, network, bound ports, generated certificates, credentials, and local service state.
-- [ ] **4.23** Add a Make-backed end-to-end test for the memory implementation through HTTP intake, outbox dispatch, Kafka consumption, replay, conflict, and cleanup.
-- [ ] **4.24** Add a Make-backed end-to-end test for the NDJSON implementation, including restart persistence, HTTP intake, outbox dispatch, Kafka consumption, replay, conflict, and cleanup.
-- [ ] **4.25** Add a Make-backed end-to-end test for the PostgreSQL implementation using separate production API and worker processes, Compose PostgreSQL/Kafka, replay/conflict, publication, restart persistence, dependency failure, and cleanup.
-- [ ] **4.26** Add a Make-backed end-to-end test for the DynamoDB Local implementation using separate production API and worker processes, DynamoDB Local/Kafka, replay/conflict, publication, restart persistence, dependency failure, and cleanup.
-- [ ] **4.27** Add a Make-backed end-to-end test proving local secret lookup supplies API, PostgreSQL, DynamoDB, and secure-Kafka configuration without logging secret values and supports rotation-shaped reload behavior.
-- [ ] **4.28** Add `make test-e2e` as the aggregate local-implementation gate; fail if any implementation is skipped, substituted with a fake, or leaves containers, volumes, networks, ports, credentials, certificates, files, or seeded state.
+- [x] **4.14** Verify `make run-api`, `make run-worker`, and `make run-local` each select the intended executable mode with explicit configuration and do not silently substitute a different component.
+- [x] **4.15** Add `make test-component-kafka` and prove topic bootstrap, production publisher serialization/keying, real broker publication/consumption, idempotent intake producing one event, retry-safe duplicate delivery, and broker-unavailable failure behavior against local Kafka.
+- [x] **4.16** Add `make test-component-kafka-secure` and prove the production client connects with TLS plus SASL/SCRAM, rejects absent/incorrect credentials and untrusted certificates, publishes/consumes successfully with valid credentials, and cleans generated test certificates and credentials.
+- [x] **4.17** Add `make test-component-postgres` and run the production PostgreSQL adapter against Compose PostgreSQL, proving schema bootstrap, atomic accept-plus-outbox, replay/conflict, rollback, concurrent lease exclusion, lease expiry, retry, terminal failure, publication, restart persistence, and database-unavailable behavior.
+- [x] **4.18** Add `make test-component-dynamodb` and run the production DynamoDB adapter against DynamoDB Local, proving table/GSI bootstrap, transactional accept-plus-outbox, replay/conflict, conditional-write races, conditional lease exclusion, lease expiry, retry, terminal failure, publication/index removal, restart persistence, and service-unavailable behavior.
+- [x] **4.19** Add `make test-component-secrets` and run the production secret-provider abstraction against the local substitute, proving initial lookup, absent/malformed secret rejection, rotation-shaped reload, least-secret exposure, redacted errors/logs, and provider-unavailable behavior.
+- [x] **4.20** Add `make test-component-storage` to run the shared transaction/outbox behavioral contract against memory, NDJSON, real local PostgreSQL, and real DynamoDB Local; record the same behavior matrix for every adapter and permit only explicitly documented capability differences.
+- [x] **4.21** Add `make test-component` as the aggregate local external-service gate. It must run every component target, then the combined cloud-equivalence smoke path, fail if any target was skipped or passed only against a fake, and verify complete teardown afterward.
+- [x] **4.22** Explicitly verify component teardown removes project volumes, network, bound ports, generated certificates, credentials, and local service state.
+- [x] **4.23** Add a Make-backed end-to-end test for the memory implementation through HTTP intake, outbox dispatch, Kafka consumption, replay, conflict, and cleanup.
+- [x] **4.24** Add a Make-backed end-to-end test for the NDJSON implementation, including restart persistence, HTTP intake, outbox dispatch, Kafka consumption, replay, conflict, and cleanup.
+- [x] **4.25** Add a Make-backed end-to-end test for the PostgreSQL implementation using separate production API and worker processes, Compose PostgreSQL/Kafka, replay/conflict, publication, restart persistence, dependency failure, and cleanup.
+- [x] **4.26** Add a Make-backed end-to-end test for the DynamoDB Local implementation using separate production API and worker processes, DynamoDB Local/Kafka, replay/conflict, publication, restart persistence, dependency failure, and cleanup.
+- [x] **4.27** Add a Make-backed end-to-end test proving local secret lookup supplies API, PostgreSQL, DynamoDB, and secure-Kafka configuration without logging secret values and supports rotation-shaped reload behavior.
+- [x] **4.28** Add `make test-e2e` as the aggregate local-implementation gate; fail if any implementation is skipped, substituted with a fake, or leaves containers, volumes, networks, ports, credentials, certificates, files, or seeded state.
 
 ### 5. AWS cloud environment
 
-- [ ] **5.1** Add Terraform for VPC/networking, EKS, MSK, DynamoDB, RDS PostgreSQL, IAM/IRSA, security groups, and Secrets Manager bindings.
-- [ ] **5.2** Deploy the tested `topic-bootstrap` EKS Job after MSK is ready; pass configurable topic name, partition count, and retention through Terraform variables.
-- [ ] **5.3** Deploy separate EKS API and worker workloads; configure replica counts, resource requests/limits, readiness/liveness probes, and horizontal-scaling-ready metrics.
-- [ ] **5.4** Configure `STORE_DRIVER=dynamodb|postgres`; use IAM for DynamoDB and Secrets Manager-backed PostgreSQL/MSK credentials.
-- [ ] **5.5** Configure the worker for MSK TLS/SASL-SCRAM, with no credentials in source, manifests, or logs.
-- [ ] **5.6** Document Terraform variables, cloud prerequisites, non-production defaults, and the fact that CI validates but does not apply infrastructure.
-- [ ] **5.7** Validate Terraform locally with formatting, initialization, `terraform validate`, and a no-credential mock/example plan. Never apply infrastructure from CI or require AWS credentials for completion.
-- [ ] **5.8** Validate Kubernetes manifests with client-side dry-run/schema checks, resource/limit checks, required probes, immutable image references, and no plaintext secrets.
+- [x] **5.1** Add Terraform for VPC/networking, EKS, MSK, DynamoDB, RDS PostgreSQL, IAM/IRSA, security groups, and Secrets Manager bindings.
+- [x] **5.2** Deploy the tested `topic-bootstrap` EKS Job after MSK is ready; pass configurable topic name, partition count, and retention through Terraform variables.
+- [x] **5.3** Deploy separate EKS API and worker workloads; configure replica counts, resource requests/limits, readiness/liveness probes, and horizontal-scaling-ready metrics.
+- [x] **5.4** Configure `STORE_DRIVER=dynamodb|postgres`; use IAM for DynamoDB and Secrets Manager-backed PostgreSQL/MSK credentials.
+- [x] **5.5** Configure the worker for MSK TLS/SASL-SCRAM, with no credentials in source, manifests, or logs.
+- [x] **5.6** Document Terraform variables, cloud prerequisites, non-production defaults, and the fact that CI validates but does not apply infrastructure.
+- [x] **5.7** Validate Terraform locally with formatting, initialization, `terraform validate`, and a no-credential mock/example plan. Never apply infrastructure from CI or require AWS credentials for completion.
+- [x] **5.8** Validate Kubernetes manifests with client-side dry-run/schema checks, resource/limit checks, required probes, immutable image references, and no plaintext secrets.
 - [x] **5.9** Unit-test DynamoDB with a deterministic AWS-client fake, including transactional writes, conditional leases, malformed records, and error propagation.
-- [ ] **5.10** Add a local Secrets Manager substitute selected through the same bootstrap configuration; test secret lookup, rotation-shaped reload behavior, absent-secret failure, and log redaction without AWS credentials.
-- [ ] **5.11** Validate PostgreSQL deployment configuration against the same storage contract and confirm the selected `STORE_DRIVER` changes only bootstrap wiring, not application behavior.
-- [ ] **5.12** Add a local cloud-equivalence smoke run: use DynamoDB Local, Compose PostgreSQL, local Secrets Manager substitute, and secure Compose Kafka to accept a uniquely identified transaction, persist/claim its outbox event, publish/consume it, and clean all test state.
-- [ ] **5.13** Validate MSK/EKS infrastructure locally: TLS-only and SASL/SCRAM configuration mapping, secret-reference policy, least-privilege IAM/IRSA policy documents, topic partition/retention values, broker logging/metric alarm definitions, and Kubernetes workload manifests.
-- [ ] **5.14** Document the optional real-AWS smoke procedure separately. It must use only an explicitly selected non-production account and must not be needed to mark any plan item complete.
-- [ ] **5.15** Unit-test the AWS Secrets Manager adapter with a deterministic client fake, including secret lookup, error classification, and redaction.
+- [x] **5.10** Add a local Secrets Manager substitute selected through the same bootstrap configuration; test secret lookup, rotation-shaped reload behavior, absent-secret failure, and log redaction without AWS credentials.
+- [x] **5.11** Validate PostgreSQL deployment configuration against the same storage contract and confirm the selected `STORE_DRIVER` changes only bootstrap wiring, not application behavior.
+- [x] **5.12** Add a local cloud-equivalence smoke run: use DynamoDB Local, Compose PostgreSQL, local Secrets Manager substitute, and secure Compose Kafka to accept a uniquely identified transaction, persist/claim its outbox event, publish/consume it, and clean all test state.
+- [x] **5.13** Validate MSK/EKS infrastructure locally: TLS-only and SASL/SCRAM configuration mapping, secret-reference policy, least-privilege IAM/IRSA policy documents, topic partition/retention values, broker logging/metric alarm definitions, and Kubernetes workload manifests.
+- [x] **5.14** Document the optional real-AWS smoke procedure separately. It must use only an explicitly selected non-production account and must not be needed to mark any plan item complete.
+- [x] **5.15** Unit-test the AWS Secrets Manager adapter with a deterministic client fake, including secret lookup, error classification, and redaction.
 
 ### 6. Verification and handoff
 
 - [x] **6.1** Add GitHub Actions for unit tests, contract tests, coverage, race tests, `go vet ./...`, command builds, Compose validation, and the Kafka Compose smoke test.
 - [x] **6.2** Write README material covering the mock-spec limitation, architecture, TDD approach, Makefile command reference, local Compose workflow, configuration, curl examples, storage modes, Kafka event contract, cloud topology, and operations. All runnable instructions must use Make targets.
 - [x] **6.3** Create and push public repository `waggertron/emovis-transaction-intake`; verify hosted README and CI workflow.
-- [ ] **6.4** Add CI gates whose product-validation commands are runnable locally without cloud credentials: plan/document validation, skill validation, unit/contract tests, race/vet/format checks, OpenAPI validation, Compose configuration, Docker build, secure-Kafka/DynamoDB-Local/PostgreSQL local smoke tests, Terraform validation, Kubernetes dry-run, and secret scanning.
+- [x] **6.4** Add CI gates whose product-validation commands are runnable locally without cloud credentials: plan/document validation, skill validation, unit/contract tests, race/vet/format checks, OpenAPI validation, Compose configuration, Docker build, secure-Kafka/DynamoDB-Local/PostgreSQL local smoke tests, Terraform validation, Kubernetes dry-run, and secret scanning.
 - [ ] **6.5** Smoke-test the published repository from a fresh clone: install declared dependencies, run the unit suite, start the documented local stack, submit the README example, observe the Kafka event, and perform the documented cleanup.
 - [ ] **6.6** Validate repository handoff quality: all links work, no secrets or generated artifacts are tracked, CI is green, Git history contains the plan and skill changes, and every checklist item has recorded evidence.
 - [x] **6.7** Pass the automated agent-instruction hierarchy validator with no missing elements or broken parent/child links.
 - [x] **6.8** Add extensive architecture documentation to the top-level `README.md`: include a component/dependency diagram; API request, idempotency, persistence, outbox, publish/retry, and consumer-deduplication flows; ports-and-adapters boundaries and responsibilities; API/worker/combined-local commands; all storage-adapter choices and single-store deployment constraint; Kafka topic/envelope/key/delivery semantics; local Compose topology; AWS EKS/MSK deployment shape; configuration and secret boundaries; observability, health, and failure handling; scalability, security, and operational trade-offs; plus explicitly deferred decisions. Validate all links and ensure the description agrees with the OpenAPI contract, ADRs, Makefile targets, tests, and deployment artifacts.
 - [x] **6.9** Add the per-package 85% unit-coverage gate to `make validate` and hosted CI, record the 72.2% baseline and initial package results, and publish readable current package results.
-- [ ] **6.10** Add every named real component-test target to `make validate` and hosted CI and retain readable component results.
-- [ ] **6.11** Add Terraform formatting and validation to hosted CI without applying infrastructure.
-- [ ] **6.12** Complete and record the manual behavior confirmation for every directory-level `AGENTS.md`.
-- [ ] **6.13** Perform and publish a final evidence-based security review under `docs/security/`. Review Go and `net/http` hardening, API-key comparison, authorization boundaries, request/body limits, input validation, error and log redaction, SQL parameterization, NDJSON path/permission safety, Kafka/MSK TLS and SASL/SCRAM, secret handling, dependency and module integrity, concurrency/race safety, Docker images and runtime privileges, Compose exposure, CI permissions, Kubernetes security context/network exposure, Terraform IAM/network/encryption controls, and repository secret history. Number every finding and record severity, location with line numbers, evidence, impact, fix, mitigation, and false-positive notes. Run locally reproducible security gates including `govulncheck`, race tests, static analysis, dependency review, container/IaC checks, and secret scanning. Resolve every Critical and High finding; resolve each Medium finding or document its explicit risk acceptance and rationale; rerun affected tests test-first and record clean follow-up evidence before release.
+- [x] **6.10** Add every named real component-test target to `make validate` and hosted CI and retain readable component results.
+- [x] **6.11** Add Terraform formatting and validation to hosted CI without applying infrastructure.
+- [x] **6.12** Complete and record the manual behavior confirmation for every directory-level `AGENTS.md`.
+- [x] **6.13** Perform and publish a final evidence-based security review under `docs/security/`. Review Go and `net/http` hardening, API-key comparison, authorization boundaries, request/body limits, input validation, error and log redaction, SQL parameterization, NDJSON path/permission safety, Kafka/MSK TLS and SASL/SCRAM, secret handling, dependency and module integrity, concurrency/race safety, Docker images and runtime privileges, Compose exposure, CI permissions, Kubernetes security context/network exposure, Terraform IAM/network/encryption controls, and repository secret history. Number every finding and record severity, location with line numbers, evidence, impact, fix, mitigation, and false-positive notes. Run locally reproducible security gates including `govulncheck`, race tests, static analysis, dependency review, container/IaC checks, and secret scanning. Resolve every Critical and High finding; resolve each Medium finding or document its explicit risk acceptance and rationale; rerun affected tests test-first and record clean follow-up evidence before release.
 - [ ] **6.14** Confirm every preceding plan checklist item is complete, then send the public repository URL.
 - [ ] **6.15** Move this completed timestamped plan from `docs/plans/current/` to `docs/plans/archive/` as the final repository action; update any plan links, validate the archive location, and confirm `docs/plans/current/` contains no completed plan.
 
@@ -219,6 +231,16 @@ Kafka publishes `transaction.review-candidates.v1` events with `eventId`, event 
 - **2026-08-17 — Coverage checker TDD.** `tests/coverage/coverage_gate_test.sh` initially failed because `tests/coverage/check.sh` did not exist, then passed after the minimum checker implementation; its fixtures reject below-threshold, false-aggregate, missing, malformed, and stale reports.
 - **2026-08-17 — HTTP parser TDD.** The added concatenated-JSON test initially returned `201`, exposing that a second valid JSON value was accepted; `ensureJSONEnd` now rejects it and the HTTP package passes at 96.2%.
 - **2026-08-17 — Per-package coverage gate (green).** `make coverage`, `make test-race`, and `make validate` pass. Package results: topic-bootstrap 89.7%, transaction-service 86.0%, bootstrap 92.7%, DynamoDB 97.1%, HTTP 96.2%, Kafka 94.3%, memory 85.5%, NDJSON 92.5%, PostgreSQL 88.9%, application 89.1%, and domain 95.5%.
+- **2026-08-17 — Production storage component evidence.** `make test-component-postgres` and `make test-component-dynamodb` passed their shared transaction/outbox contract against PostgreSQL 17 and DynamoDB Local, including concurrent lease exclusion and unavailable-service behavior; every named project container, volume, and network was removed.
+- **2026-08-17 — Secure Kafka component evidence.** `make test-component-kafka-secure` generated ephemeral PKCS12/JKS material, initialized KRaft SCRAM-SHA-512 metadata, passed production TLS/SCRAM topic bootstrap, rejected incorrect credentials, and removed generated certificates, credentials, data volumes, containers, and networks.
+- **2026-08-17 — Local implementation E2E aggregate.** `make test-e2e` passed memory, restart-persistent NDJSON, separate-process PostgreSQL, separate-process DynamoDB Local, rotating local-secret configuration, and TLS/SCRAM Kafka paths through HTTP intake, outbox dispatch, broker consumption, replay/conflict, dependency failure where applicable, and complete cleanup. A post-run Docker label audit found no Emovis containers, volumes, or networks.
+- **2026-08-17 — Current per-package coverage gate (green).** `make coverage` passes independently for all production packages: topic-bootstrap 86.6%, transaction-service 85.8%, bootstrap 93.6%, local secrets 88.0%, DynamoDB 90.9%, HTTP 96.2%, Kafka 86.0%, memory 85.5%, NDJSON 92.5%, PostgreSQL 86.5%, application 89.1%, and domain 95.5%.
+- **2026-08-17 — Infrastructure validation.** `make terraform-validate`, `make terraform-plan`, `make k8s-validate`, and `make test-infrastructure` pass without AWS credentials, a backend, or a cluster connection. The saved mock plan contains 57 creates and no changes/destroys; no apply command is exposed. AWS provider 6.60 emits a known DynamoDB `hash_key`/`range_key` deprecation warning while its installed resource schema does not yet expose the suggested `key_schema` replacement.
+- **2026-08-17 — Cloud secret and workload hardening TDD.** AWS provider tests first failed to compile without the adapter and command tests failed without the provider-selection path; the resulting Secrets Manager adapter and IRSA composition pass lookup, binary/string JSON, not-found classification, cancellation, ambiguity, precedence, and redaction tests. Infrastructure policy first failed for absent availability manifests, then passed with independent API/worker HPAs and disruption budgets. Current command/secrets package coverage is 87.0%/86.5%.
+- **2026-08-17 — Component evidence and Kafka contract.** Real PostgreSQL and DynamoDB contracts publish 75.7% and 74.7% adapter component profiles, the secret provider publishes 86.5%, and plaintext/secure Kafka publish explicit broker-behavior results under `.local/component-coverage/`. PostgreSQL additionally proves a live unique constraint, real outbox rollback, restart replay, concurrent lease exclusion, and unavailable database behavior. The strengthened plaintext consumer proves the stable key, event ID, schema version, safe payload, exactly one event after replay, and broker-unavailable failure; secure Kafka rejects absent/incorrect SCRAM and untrusted certificates live. Teardown leaves no project Docker resources.
+- **2026-08-17 — Unit isolation and live API contract.** `go test -count=2 -shuffle=on ./...` passes with ambient AWS credentials removed. Handler tests execute the mocked OpenAPI request example and every documented success/error status, replay/request-ID headers, operational endpoint, and required error-body fields against the live in-process handler.
+- **2026-08-17 — Final security remediation.** The initial reachable scan found Go 1.26.4 and `x/text` 0.29.0 vulnerabilities; Go 1.26.6 and `x/text` 0.39.0 now pass `govulncheck`. RDS IAM auth, encrypted VPC flow logs, safe deletion defaults, a 13.76 kB Docker context, clean source/history secret scans, zero High/Critical production-image findings, and zero Medium+ embedded IaC findings are recorded in `docs/security/2026-08-17-final-review.md`.
+- **2026-08-17 — Deployment sequencing and documentation gates.** Terraform validation and the credential-free 61-create plan pass with the post-MSK Job disabled locally and dependency-sequenced for real EKS. All Markdown links, five repository skills, hierarchy-validator unit tests, and the 58-directory instruction hierarchy pass; the directory elements/hierarchy were manually reconciled on 2026-08-17.
 
 ## Acceptance Criteria
 

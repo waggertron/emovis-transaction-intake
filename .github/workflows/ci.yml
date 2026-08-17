@@ -30,8 +30,8 @@ jobs:
         run: make build
       - name: Compose model
         run: make compose-config
-      - name: Repository validation
-        run: make validate
+      - name: Repository static validation
+        run: make validate-static
 
   smoke:
     runs-on: ubuntu-latest
@@ -44,3 +44,62 @@ jobs:
           cache: true
       - name: Complete local transaction flow
         run: make smoke
+
+  components:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Real local external-service components
+        run: make test-component
+
+  end-to-end:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Every local implementation
+        run: make test-e2e
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+      - name: Install local manifest validator dependency
+        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.2
+      - name: Terraform validation without apply
+        run: make terraform-fmt && make terraform-validate
+      - name: Kubernetes offline validation
+        run: make k8s-validate
+      - name: Infrastructure policy contracts
+        run: make test-infrastructure
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Reachable Go vulnerability scan
+        run: make security-vuln
+      - name: Working tree and history secret scan
+        run: make security-secrets
+      - name: Source and infrastructure security scan
+        run: make security-config
+      - name: Production image security scan
+        run: make security-image

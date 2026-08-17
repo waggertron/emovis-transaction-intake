@@ -1,0 +1,9 @@
+aws_region            = "us-west-2"
+availability_zones    = ["us-west-2a", "us-west-2b", "us-west-2c"]
+environment           = "nonprod"
+local_validation      = true
+deletion_protection   = false
+topic_name             = "transaction.review-candidates.v1"
+topic_partitions       = 3
+topic_replication      = 3
+topic_retention        = "168h"

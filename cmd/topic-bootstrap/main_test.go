@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -24,6 +25,51 @@ func TestLoadTopicSettingsUsesPlannedDefaults(t *testing.T) {
 	}
 	if settings.Broker != "kafka:9092" || settings.Topic.Name != "transaction.review-candidates.v1" || settings.Topic.Partitions != 3 || settings.Topic.ReplicationFactor != 1 || settings.Topic.Retention != 7*24*time.Hour {
 		t.Fatalf("unexpected defaults: %#v", settings)
+	}
+}
+
+func TestSecureKafkaDialRejectsInvalidTrustAndHonorsContext(t *testing.T) {
+	t.Parallel()
+	settings := topicSettings{Security: kafkaadapter.SecurityConfig{TLS: true, CAFile: filepath.Join(t.TempDir(), "absent.pem")}}
+	if _, err := secureKafkaDial(settings); err == nil {
+		t.Fatal("expected invalid CA failure")
+	}
+	dial, err := secureKafkaDial(topicSettings{})
+	if err != nil {
+		t.Fatalf("plaintext dialer: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := dial(ctx, "tcp", "127.0.0.1:1"); err == nil {
+		t.Fatal("expected canceled connection")
+	}
+}
+
+func TestRunProductionCLIRejectsInvalidAndUntrustedConfiguration(t *testing.T) {
+	t.Parallel()
+	if err := runProductionCLI(func(string) string { return "" }); err == nil {
+		t.Fatal("expected missing broker rejection")
+	}
+	values := map[string]string{
+		"KAFKA_BROKERS": "kafka:9094", "KAFKA_TLS": "true", "KAFKA_CA_FILE": filepath.Join(t.TempDir(), "absent.pem"),
+	}
+	if err := runProductionCLI(func(name string) string { return values[name] }); err == nil {
+		t.Fatal("expected untrusted configuration rejection")
+	}
+}
+
+func TestLoadTopicSettingsParsesTLSAndSCRAM(t *testing.T) {
+	t.Parallel()
+	values := map[string]string{
+		"KAFKA_BROKERS": "kafka-secure:9094", "KAFKA_TLS": "true", "KAFKA_CA_FILE": "/run/secrets/ca.pem",
+		"KAFKA_SASL_USERNAME": "transaction", "KAFKA_SASL_PASSWORD": "external-password",
+	}
+	settings, err := loadTopicSettings(func(name string) string { return values[name] })
+	if err != nil {
+		t.Fatalf("load secure settings: %v", err)
+	}
+	if !settings.Security.TLS || settings.Security.CAFile != "/run/secrets/ca.pem" || settings.Security.SASLUsername != "transaction" || settings.Security.SASLPassword != "external-password" {
+		t.Fatalf("unexpected security settings: %#v", settings.Security)
 	}
 }
 

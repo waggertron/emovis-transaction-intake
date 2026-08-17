@@ -4,10 +4,13 @@ SHELL := /bin/bash
 
 COMPOSE_PROJECT_NAME ?= emovis-transaction-intake
 COMPOSE_FILE ?= compose.yaml
+GITLEAKS_IMAGE ?= zricethezav/gitleaks:v8.24.2
+TRIVY_IMAGE ?= aquasec/trivy:0.59.1
+SECURITY_IMAGE ?= emovis-transaction-intake:security-review
 
-.PHONY: help test test-unit test-race test-contract lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke coverage validate clean
+.PHONY: help test test-unit test-race test-contract lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke coverage test-component test-component-storage test-component-postgres test-component-dynamodb test-component-kafka test-component-kafka-secure test-component-secrets test-e2e test-e2e-memory test-e2e-ndjson test-e2e-postgres test-e2e-dynamodb test-e2e-secrets test-e2e-kafka-secure test-cloud-equivalence terraform-fmt terraform-init terraform-validate terraform-plan k8s-validate test-infrastructure docs-validate security security-vuln security-secrets security-config security-image validate-static validate clean
 
-help: ## Show the canonical commands: help test test-unit test-race test-contract lint format-check vet build run-api run-worker run-local compose-up compose-down compose-config smoke coverage validate clean
+help: ## Show all canonical test, build, run, Compose, component, validation, and cleanup commands
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "%-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 test: test-unit ## Run all automated Go tests
@@ -24,6 +27,7 @@ test-contract: ## Run command, API, container, and CI contract tests
 	bash tests/containers/definitions_test.sh
 	bash tests/ci/workflow_test.sh
 	bash tests/coverage/coverage_gate_test.sh
+	cd .codex/skills/agent-instruction-hierarchy/scripts && env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest validate_hierarchy_test.py
 
 lint: format-check vet ## Run source formatting and static analysis checks
 
@@ -61,13 +65,94 @@ smoke: ## Exercise the documented transaction flow through the local stack
 
 coverage: ## Enforce at least 85 percent statement coverage in every production Go package
 	mkdir -p .local/coverage
-	go list ./... >.local/coverage/expected-packages.txt
+	go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./... | sed '/^$$/d' >.local/coverage/expected-packages.txt
 	go test -coverprofile=.local/coverage/unit.out ./... | tee .local/coverage/packages.txt
 	bash tests/coverage/check.sh .local/coverage/packages.txt .local/coverage/expected-packages.txt 85
 
-validate: test test-contract coverage lint compose-config ## Run the locally reproducible delivery gates
+test-component-postgres: ## Run the shared store contract against Compose PostgreSQL
+	bash tests/component/postgres.sh
+
+test-component-dynamodb: ## Run the shared store contract against DynamoDB Local
+	bash tests/component/dynamodb.sh
+
+test-component-kafka: ## Run production Kafka behavior against the local plaintext broker
+	bash tests/component/kafka.sh
+
+test-component-kafka-secure: ## Run production Kafka behavior against local TLS and SASL/SCRAM
+	bash tests/component/kafka_secure.sh
+
+test-component-secrets: ## Run the secret-provider contract against its local substitute
+	bash tests/component/secrets.sh
+
+test-component-storage: test-component-postgres test-component-dynamodb ## Run every real local storage component contract
+
+test-component: test-component-storage test-component-kafka test-component-kafka-secure test-component-secrets test-cloud-equivalence ## Run every real local external-service component test
+
+test-e2e-memory: ## Run the production HTTP, memory, outbox, and Kafka path
+	bash tests/e2e/memory.sh
+
+test-e2e-ndjson: ## Run the production HTTP, persistent NDJSON, outbox, and Kafka path
+	bash tests/e2e/ndjson.sh
+
+test-e2e-postgres: ## Run separate production API and worker processes with PostgreSQL and Kafka
+	bash tests/e2e/postgres.sh
+
+test-e2e-dynamodb: ## Run separate production API and worker processes with DynamoDB Local and Kafka
+	bash tests/e2e/dynamodb.sh
+
+test-e2e-secrets: ## Run the production processes with the local secret-provider implementation
+	bash tests/e2e/secrets.sh
+
+test-e2e-kafka-secure: ## Run the production path with local TLS and SASL/SCRAM Kafka
+	bash tests/e2e/kafka_secure.sh
+
+test-e2e: test-e2e-memory test-e2e-ndjson test-e2e-postgres test-e2e-dynamodb test-e2e-secrets test-e2e-kafka-secure ## Run every local implementation end to end
+
+test-cloud-equivalence: test-e2e-postgres test-e2e-dynamodb test-e2e-secrets test-e2e-kafka-secure ## Prove each selected cloud boundary through its production local equivalent
+
+terraform-fmt: ## Check Terraform formatting without changing files
+	terraform -chdir=infra/terraform fmt -check -recursive
+
+terraform-init: ## Initialize pinned Terraform providers without a backend
+	terraform -chdir=infra/terraform init -backend=false -input=false
+
+terraform-validate: terraform-init ## Validate Terraform without cloud credentials or apply
+	terraform -chdir=infra/terraform validate
+
+terraform-plan: terraform-init ## Create a no-credential, non-applying example Terraform plan
+	mkdir -p .local/terraform
+	terraform -chdir=infra/terraform plan -input=false -refresh=false -lock=false -var-file=terraform.tfvars.example -out=../../.local/terraform/example.tfplan
+
+k8s-validate: ## Validate Kubernetes YAML structure and client-side schemas without applying
+	kubectl kustomize deploy/kubernetes | env PYTHONDONTWRITEBYTECODE=1 python3 tests/infrastructure/validate_kubernetes.py
+
+test-infrastructure: ## Run local Terraform and Kubernetes security-policy contracts
+	bash tests/infrastructure/infrastructure_test.sh
+
+docs-validate: ## Validate all repository-relative Markdown links
+	env PYTHONDONTWRITEBYTECODE=1 python3 tests/documentation/link_check.py .
+
+security-vuln: ## Scan reachable Go code for known vulnerabilities
+	go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+security-secrets: ## Scan the working tree and Git history for secrets
+	docker run --rm -v $(CURDIR):/repo $(GITLEAKS_IMAGE) dir --no-banner --redact --config /repo/.gitleaks.toml /repo
+	docker run --rm -v $(CURDIR):/repo $(GITLEAKS_IMAGE) git --no-banner --redact --config /repo/.gitleaks.toml /repo
+
+security-config: ## Scan source, containers, Kubernetes, and Terraform for severe findings
+	docker run --rm -v $(CURDIR):/repo $(TRIVY_IMAGE) fs --cache-dir /tmp/trivy --skip-check-update --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --exit-code 1 --skip-dirs .git --skip-dirs .local /repo
+
+security-image: ## Build and scan the production API image for severe vulnerabilities
+	docker build --target api -t $(SECURITY_IMAGE) .
+	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock $(TRIVY_IMAGE) image --cache-dir /tmp/trivy --severity HIGH,CRITICAL --exit-code 1 $(SECURITY_IMAGE)
+
+security: security-vuln security-secrets security-config security-image ## Run all locally reproducible security gates
+
+validate-static: test test-contract coverage lint compose-config docs-validate ## Run fast locally reproducible delivery gates
 	env PYTHONDONTWRITEBYTECODE=1 python3 .codex/skills/agent-instruction-hierarchy/scripts/validate_hierarchy.py --root .
 	git diff --check
+
+validate: validate-static test-component test-e2e terraform-fmt terraform-validate k8s-validate test-infrastructure security ## Run every local delivery gate, including real substitutes
 
 clean: ## Remove only repository-owned build, test, and Compose artifacts
 	go clean -testcache

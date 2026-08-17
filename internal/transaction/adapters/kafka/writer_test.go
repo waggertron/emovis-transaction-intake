@@ -2,6 +2,8 @@ package kafkaadapter
 
 import (
 	"crypto/tls"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,10 +18,27 @@ func TestNewWriterRejectsUnsafeOrIncompleteConfig(t *testing.T) {
 		{Brokers: []string{"kafka:9092"}},
 		{Brokers: []string{"kafka:9092"}, Topic: "topic", SASLUsername: "user", SASLPassword: "password"},
 		{Brokers: []string{"kafka:9092"}, Topic: "topic", TLS: true, SASLUsername: "user"},
+		{Brokers: []string{"kafka:9092"}, Topic: "topic", CAFile: "ca.pem"},
 	} {
 		if _, err := NewWriter(config); err == nil {
 			t.Fatalf("expected invalid config to fail: %#v", config)
 		}
+	}
+}
+
+func TestNewWriterRejectsUnreadableOrInvalidCAFileWithoutDisablingVerification(t *testing.T) {
+	t.Parallel()
+	base := WriterConfig{Brokers: []string{"kafka:9094"}, Topic: "topic", TLS: true}
+	base.CAFile = filepath.Join(t.TempDir(), "absent.pem")
+	if _, err := NewWriter(base); err == nil {
+		t.Fatal("expected absent CA file rejection")
+	}
+	base.CAFile = filepath.Join(t.TempDir(), "invalid.pem")
+	if err := os.WriteFile(base.CAFile, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewWriter(base); err == nil {
+		t.Fatal("expected invalid CA file rejection")
 	}
 }
 

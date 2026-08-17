@@ -22,6 +22,6 @@ CREATE TABLE IF NOT EXISTS outbox_events (
     CONSTRAINT outbox_transaction_event_fk FOREIGN KEY (event_id) REFERENCES transactions(event_id)
 );
 
-CREATE INDEX outbox_dispatch_idx
+CREATE INDEX IF NOT EXISTS outbox_dispatch_idx
     ON outbox_events (status, retry_at, lease_until, occurred_at)
     WHERE status = 'pending';

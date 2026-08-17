@@ -58,6 +58,288 @@ services:
         condition: service_completed_successfully
     networks: [transaction-intake]
 
+  postgres:
+    image: postgres:17.6-alpine
+    profiles: [component-postgres, e2e-postgres]
+    environment:
+      POSTGRES_DB: transactions
+      POSTGRES_USER: transaction_test
+      POSTGRES_PASSWORD: local-component-only
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transaction_test -d transactions"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - postgres-component-data:/var/lib/postgresql/data
+    networks: [transaction-intake]
+
+  dynamodb-init:
+    image: amazon/dynamodb-local:2.6.1
+    profiles: [component-dynamodb, e2e-dynamodb]
+    user: "0:0"
+    entrypoint: ["sh", "-c"]
+    command: ["chown 1000:1000 /data"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - dynamodb-component-data:/data
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:2.6.1
+    profiles: [component-dynamodb, e2e-dynamodb]
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
+    ports:
+      - "127.0.0.1:58000:8000"
+    volumes:
+      - dynamodb-component-data:/home/dynamodblocal/data
+    depends_on:
+      dynamodb-init:
+        condition: service_completed_successfully
+    networks: [transaction-intake]
+
+  e2e-ndjson-init:
+    image: alpine:3.22.1
+    profiles: [e2e-ndjson, e2e-secrets]
+    user: "0:0"
+    command: ["chown", "65532:65532", "/data"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ndjson-e2e-data:/data
+
+  e2e-ndjson:
+    profiles: [e2e-ndjson]
+    build:
+      context: .
+      target: local
+    environment:
+      HTTP_ADDRESS: :8080
+      PARTNER_ID: local-partner
+      API_KEY: local-development-only-key
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: transaction.review-candidates.v1
+      STORE_DRIVER: ndjson
+      STORE_PATH: /data/transactions.ndjson
+    ports:
+      - "127.0.0.1:18080:8080"
+    volumes:
+      - ndjson-e2e-data:/data
+    depends_on:
+      e2e-ndjson-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      topic-bootstrap:
+        condition: service_completed_successfully
+    networks: [transaction-intake]
+
+  e2e-postgres-api:
+    profiles: [e2e-postgres]
+    build:
+      context: .
+      target: api
+    environment: &postgres-e2e-environment
+      HTTP_ADDRESS: :8080
+      PARTNER_ID: local-partner
+      API_KEY: local-development-only-key
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: transaction.review-candidates.v1
+      STORE_DRIVER: postgres
+      POSTGRES_URL: postgres://transaction_test:local-component-only@postgres:5432/transactions?sslmode=disable
+    ports:
+      - "127.0.0.1:18081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      topic-bootstrap:
+        condition: service_completed_successfully
+    networks: [transaction-intake]
+
+  e2e-postgres-worker:
+    profiles: [e2e-postgres]
+    build:
+      context: .
+      target: worker
+    environment: *postgres-e2e-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      topic-bootstrap:
+        condition: service_completed_successfully
+    networks: [transaction-intake]
+
+  e2e-dynamodb-api:
+    profiles: [e2e-dynamodb]
+    build:
+      context: .
+      target: api
+    environment: &dynamodb-e2e-environment
+      HTTP_ADDRESS: :8080
+      PARTNER_ID: local-partner
+      API_KEY: local-development-only-key
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: transaction.review-candidates.v1
+      STORE_DRIVER: dynamodb
+      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+      DYNAMODB_TABLE: transaction-intake-e2e
+      AWS_REGION: us-west-2
+    ports:
+      - "127.0.0.1:18082:8080"
+    depends_on:
+      dynamodb-local:
+        condition: service_started
+      topic-bootstrap:
+        condition: service_completed_successfully
+    networks: [transaction-intake]
+
+  e2e-dynamodb-worker:
+    profiles: [e2e-dynamodb]
+    build:
+      context: .
+      target: worker
+    environment: *dynamodb-e2e-environment
+    depends_on:
+      dynamodb-local:
+        condition: service_started
+      topic-bootstrap:
+        condition: service_completed_successfully
+    networks: [transaction-intake]
+
+  e2e-secrets:
+    profiles: [e2e-secrets]
+    build:
+      context: .
+      target: local
+    environment:
+      LOCAL_SECRET_FILE: /run/secrets/config.json
+    ports:
+      - "127.0.0.1:18083:8080"
+    volumes:
+      - ${LOCAL_SECRET_FILE_HOST:-./.local/secrets/e2e.json}:/run/secrets/config.json:ro
+      - ndjson-e2e-data:/data
+    depends_on:
+      e2e-ndjson-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      topic-bootstrap:
+        condition: service_completed_successfully
+    networks: [transaction-intake]
+
+  kafka-secure-init:
+    image: apache/kafka:4.0.0
+    profiles: [component-kafka-secure, e2e-kafka-secure]
+    user: "0:0"
+    entrypoint: ["/bin/bash", "/fixtures/init.sh"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ./tests/fixtures/kafka-secure:/fixtures:ro
+      - kafka-secure-secrets:/secrets
+      - kafka-secure-data:/var/lib/kafka/data
+
+  kafka-secure:
+    image: apache/kafka:4.0.0
+    hostname: kafka-secure
+    profiles: [component-kafka-secure, e2e-kafka-secure]
+    environment:
+      KAFKA_NODE_ID: "1"
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:19092,SASL_SSL://:9094,CONTROLLER://:9095
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-secure:19092,SASL_SSL://kafka-secure:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,SASL_SSL:SASL_SSL,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-secure:9095
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
+      KAFKA_OPTS: -Djava.security.auth.login.config=/etc/kafka/secrets/kafka_server_jaas.conf
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka_ssl_key_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka_truststore_creds
+      KAFKA_SSL_CLIENT_AUTH: none
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+    depends_on:
+      kafka-secure-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-secure:9094 --command-config /etc/kafka/secrets/client.properties --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    volumes:
+      - kafka-secure-secrets:/etc/kafka/secrets:ro
+      - kafka-secure-data:/var/lib/kafka/data
+    networks: [transaction-intake]
+
+  topic-bootstrap-secure:
+    profiles: [component-kafka-secure, e2e-kafka-secure]
+    build:
+      context: .
+      target: topic-bootstrap
+    environment:
+      KAFKA_BROKERS: kafka-secure:9094
+      KAFKA_TOPIC: transaction.review-candidates.v1
+      KAFKA_TOPIC_PARTITIONS: "3"
+      KAFKA_TOPIC_REPLICATION: "1"
+      KAFKA_TOPIC_RETENTION: 168h
+      KAFKA_TLS: "true"
+      KAFKA_CA_FILE: /run/secrets/kafka-ca.pem
+      KAFKA_SASL_USERNAME: transaction-local
+      KAFKA_SASL_PASSWORD: local-scram-password
+    depends_on:
+      kafka-secure:
+        condition: service_healthy
+    volumes:
+      - kafka-secure-secrets:/run/secrets:ro
+    networks: [transaction-intake]
+
+  e2e-kafka-secure:
+    profiles: [e2e-kafka-secure]
+    build:
+      context: .
+      target: local
+    environment:
+      HTTP_ADDRESS: :8080
+      PARTNER_ID: local-partner
+      API_KEY: local-development-only-key
+      KAFKA_BROKERS: kafka-secure:9094
+      KAFKA_TOPIC: transaction.review-candidates.v1
+      KAFKA_TLS: "true"
+      KAFKA_CA_FILE: /run/secrets/kafka-ca.pem
+      KAFKA_SASL_USERNAME: transaction-local
+      KAFKA_SASL_PASSWORD: local-scram-password
+    ports:
+      - "127.0.0.1:18084:8080"
+    depends_on:
+      kafka-secure:
+        condition: service_healthy
+      topic-bootstrap-secure:
+        condition: service_completed_successfully
+    volumes:
+      - kafka-secure-secrets:/run/secrets:ro
+    networks: [transaction-intake]
+
 networks:
   transaction-intake:
-    name: emovis-transaction-intake
+
+volumes:
+  postgres-component-data:
+  dynamodb-component-data:
+  ndjson-e2e-data:
+  kafka-secure-secrets:
+  kafka-secure-data:

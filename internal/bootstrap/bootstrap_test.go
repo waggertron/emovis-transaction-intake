@@ -43,19 +43,56 @@ func TestLoadConfigRejectsUnknownStoreDriver(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRequiresAndProtectsPostgresConfiguration(t *testing.T) {
+	t.Parallel()
+	base := map[string]string{"API_KEY": "key", "PARTNER_ID": "partner", "STORE_DRIVER": "postgres"}
+	if _, err := LoadConfig(func(name string) string { return base[name] }); err == nil {
+		t.Fatal("expected missing POSTGRES_URL to fail")
+	}
+	base["POSTGRES_URL"] = "postgres://user:super-secret@database/transactions"
+	config, err := LoadConfig(func(name string) string { return base[name] })
+	if err != nil {
+		t.Fatalf("load PostgreSQL config: %v", err)
+	}
+	if config.PostgresURL != base["POSTGRES_URL"] || contains(config.String(), "super-secret") || contains(config.String(), "postgres://") {
+		t.Fatalf("PostgreSQL configuration leaked: %s", config.String())
+	}
+}
+
+func TestLoadConfigUsesDynamoDefaultsAndExplicitLocalEndpoint(t *testing.T) {
+	t.Parallel()
+	values := map[string]string{
+		"API_KEY": "key", "PARTNER_ID": "partner", "STORE_DRIVER": "dynamodb",
+		"DYNAMODB_ENDPOINT": "http://dynamodb-local:8000", "AWS_REGION": "us-east-2", "DYNAMODB_TABLE": "toll-transactions",
+	}
+	config, err := LoadConfig(func(name string) string { return values[name] })
+	if err != nil {
+		t.Fatalf("load DynamoDB config: %v", err)
+	}
+	if config.DynamoEndpoint != values["DYNAMODB_ENDPOINT"] || config.DynamoRegion != "us-east-2" || config.DynamoTable != "toll-transactions" {
+		t.Fatalf("unexpected DynamoDB config: %#v", config)
+	}
+	delete(values, "DYNAMODB_TABLE")
+	delete(values, "AWS_REGION")
+	config, err = LoadConfig(func(name string) string { return values[name] })
+	if err != nil || config.DynamoTable != "transaction-intake" || config.DynamoRegion != "us-west-2" {
+		t.Fatalf("unexpected DynamoDB defaults: %#v, %v", config, err)
+	}
+}
+
 func TestLoadConfigParsesKafkaSecurityWithoutLoggingSecrets(t *testing.T) {
 	t.Parallel()
 
 	values := map[string]string{
 		"API_KEY": "external-secret", "PARTNER_ID": "partner-west",
 		"KAFKA_BROKERS": "broker-1:9094, broker-2:9094", "KAFKA_TOPIC": "review.v1",
-		"KAFKA_TLS": "true", "KAFKA_SASL_USERNAME": "user", "KAFKA_SASL_PASSWORD": "password",
+		"KAFKA_TLS": "true", "KAFKA_CA_FILE": "/run/secrets/kafka-ca.pem", "KAFKA_SASL_USERNAME": "user", "KAFKA_SASL_PASSWORD": "password",
 	}
 	config, err := LoadConfig(func(name string) string { return values[name] })
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if len(config.KafkaBrokers) != 2 || !config.KafkaTLS || config.KafkaSASLUsername != "user" || config.KafkaSASLPassword != "password" {
+	if len(config.KafkaBrokers) != 2 || !config.KafkaTLS || config.KafkaCAFile != "/run/secrets/kafka-ca.pem" || config.KafkaSASLUsername != "user" || config.KafkaSASLPassword != "password" {
 		t.Fatalf("unexpected Kafka config")
 	}
 	if config.String() == "" || contains(config.String(), "external-secret") || contains(config.String(), "password") {

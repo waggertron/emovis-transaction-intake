@@ -1,0 +1,4 @@
+interface:
+  display_name: "Record Plan Decisions"
+  short_description: "Record attributed decisions in the active plan"
+  default_prompt: "Use $record-plan-decisions to record this material decision in the current repository plan before continuing."

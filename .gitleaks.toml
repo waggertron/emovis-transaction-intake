@@ -1,0 +1,8 @@
+title = "Emovis transaction intake secret scanning"
+
+[allowlist]
+description = "Explicit non-production sentinel API keys used by documented local tests"
+regexTarget = "match"
+regexes = [
+  '''X-API-Key:\s+(local-development-only-key|rotated-local-key)''',
+]

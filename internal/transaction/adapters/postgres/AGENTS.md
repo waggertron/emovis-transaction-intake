@@ -20,6 +20,7 @@ Run sqlmock unit tests, the shared store contract, and Compose PostgreSQL integr
 ## Elements
 | Element | Behavior |
 | --- | --- |
+| `migrate.go` | Embeds and idempotently applies the PostgreSQL schema at component or process bootstrap. |
 | `schema.sql` | Defines transaction identity and leased outbox tables and indexes. |
 | `store.go` | Implements parameterized atomic PostgreSQL acceptance. |
 | `store_test.go` | Specifies SQL transaction, idempotency, and rollback behavior. |

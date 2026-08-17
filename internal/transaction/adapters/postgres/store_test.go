@@ -165,7 +165,7 @@ func TestSchemaDefinesAtomicIdentityAndOutboxLeaseState(t *testing.T) {
 	schema := string(payload)
 	for _, required := range []string{
 		"PRIMARY KEY (partner_id, transaction_id)", "payload JSONB", "event_payload JSONB",
-		"lease_until TIMESTAMPTZ", "retry_at TIMESTAMPTZ", "CREATE INDEX outbox_dispatch_idx",
+		"lease_until TIMESTAMPTZ", "retry_at TIMESTAMPTZ", "CREATE INDEX IF NOT EXISTS outbox_dispatch_idx",
 	} {
 		if !strings.Contains(schema, required) {
 			t.Fatalf("schema missing %q", required)
@@ -232,6 +232,33 @@ func TestStorePropagatesOutcomeAndAffectedRowFailures(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+	database.Close()
+}
+
+func TestMigrateAppliesEmbeddedSchemaAndWrapsFailure(t *testing.T) {
+	t.Parallel()
+	database, mock, _ := sqlmock.New()
+	mock.ExpectBegin()
+	mock.ExpectExec("pg_advisory_xact_lock").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS transactions").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+	if err := Migrate(context.Background(), database); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+	database.Close()
+
+	want := errors.New("migration unavailable")
+	database, mock, _ = sqlmock.New()
+	mock.ExpectBegin()
+	mock.ExpectExec("pg_advisory_xact_lock").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS transactions").WillReturnError(want)
+	mock.ExpectRollback()
+	if err := Migrate(context.Background(), database); !errors.Is(err, want) {
+		t.Fatalf("migration error: %v", err)
 	}
 	database.Close()
 }

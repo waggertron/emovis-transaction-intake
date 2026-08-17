@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from pathlib import Path
 
 
@@ -62,7 +63,8 @@ def validate_directory(root: Path, directory: Path, all_directories: set[Path]) 
     for entry in child_entries:
         if entry in IGNORED_DIRECTORIES:
             continue
-        if f"`{entry}`" not in content:
+        row = re.compile(rf"^\|\s*`{re.escape(entry)}`\s*\|\s*[^|\s][^|]*\|\s*$", re.MULTILINE)
+        if not row.search(content):
             errors.append(f"{display}: Elements table does not describe {entry!r}")
 
     parent = directory.parent

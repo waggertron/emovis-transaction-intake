@@ -53,6 +53,11 @@ The Makefile is the documented interface for developers and CI.
 | `make smoke` | Run the self-cleaning end-to-end Kafka flow. |
 | `make validate` | Run locally reproducible delivery gates. |
 | `make coverage` | Generate coverage evidence and require at least 85% statement coverage in every production Go package. |
+| `make test-component` | Exercise every production external-service adapter against its real local substitute. |
+| `make test-e2e` | Exercise every local implementation through HTTP, outbox, and Kafka. |
+| `make test-cloud-equivalence` | Run the PostgreSQL, DynamoDB, local-secret, and secure-Kafka production-shaped matrix. |
+| `make terraform-validate` / `make terraform-plan` | Validate and plan the AWS reference without credentials or apply. |
+| `make k8s-validate` / `make test-infrastructure` | Render and enforce local deployment security contracts. |
 | `make clean` | Remove only repository-owned local artifacts. |
 
 Direct process runs require `API_KEY` and `PARTNER_ID`. Kafka defaults to `localhost:9092` and `transaction.review-candidates.v1`. Secrets are never assigned source-code defaults.
@@ -148,7 +153,7 @@ Kafka is intentionally single-node and plaintext only inside the isolated local 
 
 The cloud design uses separate EKS API and worker deployments, Amazon MSK, one selected shared store (DynamoDB or RDS PostgreSQL), IRSA/least-privilege IAM, and Secrets Manager. MSK client traffic uses TLS and SASL/SCRAM; credentials are external, never present in source, manifests, events, or logs. A post-MSK EKS Job runs the same topic-bootstrap behavior.
 
-No cloud account or credentials are required for repository completion. Terraform formatting/validation, policy checks, Kubernetes schema checks, and local equivalents provide the required local evidence; an actual non-production AWS smoke run is supplemental.
+No cloud account or credentials are required for repository completion. Terraform formatting/validation, policy checks, Kubernetes schema checks, and local equivalents provide the required local evidence; an actual non-production AWS smoke run is supplemental. See the [AWS infrastructure reference](docs/infrastructure/reference.md) and [optional non-production smoke procedure](docs/infrastructure/aws-smoke.md).
 
 ### Observability and operations
 
@@ -165,6 +170,7 @@ No cloud account or credentials are required for repository completion. Terrafor
 - Runtime images are distroless and explicitly non-root.
 - SQL adapters use parameters; cloud policies and networks are least privilege; events contain only the fields needed for review.
 - CI runs race, static, vulnerability, secret, container, and IaC checks. The final review is published under `docs/security/` before handoff.
+- The evidence and remediations are recorded in the [final security review](docs/security/2026-08-17-final-review.md).
 
 ### Trade-offs and deferred decisions
 
@@ -181,3 +187,5 @@ See [portable storage/outbox ADR](docs/adr/2026-08-16-portable-storage-and-outbo
 Every production behavior follows red-green-refactor: write the focused test, run it to observe the intended failure, add the smallest implementation, rerun focused and affected suites, then refactor while green. Unit tests use injected clocks, IDs, stores, publishers, and authentication. Adapter tests add persistence and mapping confidence; Compose smoke verifies wiring but never replaces unit tests.
 
 Repository-specific coding-agent instructions live in [AGENTS.md](AGENTS.md) and `.codex/skills/`. Every authored directory has its own linked `AGENTS.md` describing scope, elements, behavior, and validation.
+
+The [behavior-to-test matrix](docs/testing/behavior-matrix.md) maps critical correctness and failure risks to focused assertions, real local-service components, and end-to-end paths.

@@ -22,11 +22,17 @@ Run Markdown/link and hierarchy checks.
 | `architecture` | Explains stable structure and topology. |
 | `adr` | Records significant architecture choices and rationale. |
 | `info` | Preserves source requirements. |
+| `infrastructure` | Documents cloud topology, local validation, and optional AWS verification. |
 | `plans` | Tracks current and archived plans. |
+| `security` | Publishes evidence-based security review findings and remediation. |
+| `testing` | Maps critical behavior to explicit layered test evidence. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).
 - Child: [architecture/AGENTS.md](architecture/AGENTS.md).
 - Child: [adr/AGENTS.md](adr/AGENTS.md).
 - Child: [info/AGENTS.md](info/AGENTS.md).
+- Child: [infrastructure/AGENTS.md](infrastructure/AGENTS.md).
 - Child: [plans/AGENTS.md](plans/AGENTS.md).
+- Child: [security/AGENTS.md](security/AGENTS.md).
+- Child: [testing/AGENTS.md](testing/AGENTS.md).

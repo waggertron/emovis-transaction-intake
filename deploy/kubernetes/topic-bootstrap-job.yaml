@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata: {name: transaction-intake-topic-bootstrap, namespace: transaction-intake}
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: {app: transaction-intake-topic-bootstrap}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: transaction-intake
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: topic-bootstrap
+          image: public.ecr.aws/example/topic-bootstrap@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          env:
+            - {name: KAFKA_TOPIC, value: transaction.review-candidates.v1}
+            - {name: KAFKA_TOPIC_PARTITIONS, value: "3"}
+            - {name: KAFKA_TOPIC_REPLICATION, value: "3"}
+            - {name: KAFKA_TOPIC_RETENTION, value: 168h}
+            - {name: KAFKA_TLS, value: "true"}
+            - {name: KAFKA_SASL_USERNAME, valueFrom: {secretKeyRef: {name: transaction-intake-runtime, key: kafka-username}}}
+            - {name: KAFKA_SASL_PASSWORD, valueFrom: {secretKeyRef: {name: transaction-intake-runtime, key: kafka-password}}}
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 250m, memory: 128Mi}}
+          securityContext: {runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}

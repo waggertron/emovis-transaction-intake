@@ -24,6 +24,7 @@ Run the hierarchy validator, focused tests, and repository validation target.
 | `.codex` | Contains repository-local Codex skills. |
 | `.dockerignore` | Excludes VCS, local build, test, and runtime artifacts from image contexts. |
 | `.gitignore` | Excludes local build, test, and runtime artifacts. |
+| `.gitleaks.toml` | Allows only named local sentinel keys while scanning source and history. |
 | `.github` | Contains least-privilege hosted CI configuration. |
 | `Dockerfile` | Builds reproducible non-root images for each executable mode. |
 | `Makefile` | Provides the canonical strict developer and CI command interface. |
@@ -35,6 +36,8 @@ Run the hierarchy validator, focused tests, and repository validation target.
 | `go.mod` | Declares the Go module and supported language version. |
 | `go.sum` | Locks authenticated checksums for Go dependencies. |
 | `internal` | Contains non-exported domain, application, adapter, and bootstrap code. |
+| `infra` | Contains locally validated cloud infrastructure definitions. |
+| `deploy` | Contains immutable, hardened deployment manifests. |
 | `tests` | Contains repository-level command, contract, integration, and smoke checks. |
 
 ## Instruction hierarchy
@@ -45,4 +48,6 @@ Run the hierarchy validator, focused tests, and repository validation target.
 - Child: [cmd/AGENTS.md](cmd/AGENTS.md).
 - Child: [docs/AGENTS.md](docs/AGENTS.md).
 - Child: [internal/AGENTS.md](internal/AGENTS.md).
+- Child: [infra/AGENTS.md](infra/AGENTS.md).
+- Child: [deploy/AGENTS.md](deploy/AGENTS.md).
 - Child: [tests/AGENTS.md](tests/AGENTS.md).

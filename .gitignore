@@ -3,3 +3,8 @@ tmp/
 /coverage/
 *.out
 .env
+.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.*
+crash.log

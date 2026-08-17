@@ -21,10 +21,15 @@ type Config struct {
 	KafkaBrokers      []string
 	KafkaTopic        string
 	KafkaTLS          bool
+	KafkaCAFile       string
 	KafkaSASLUsername string
 	KafkaSASLPassword string
 	StoreDriver       string
 	StorePath         string
+	PostgresURL       string
+	DynamoEndpoint    string
+	DynamoRegion      string
+	DynamoTable       string
 }
 
 func LoadConfig(lookup func(string) string) (Config, error) {
@@ -33,10 +38,15 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 		PartnerID:         lookup("PARTNER_ID"),
 		APIKey:            lookup("API_KEY"),
 		KafkaTopic:        lookup("KAFKA_TOPIC"),
+		KafkaCAFile:       lookup("KAFKA_CA_FILE"),
 		KafkaSASLUsername: lookup("KAFKA_SASL_USERNAME"),
 		KafkaSASLPassword: lookup("KAFKA_SASL_PASSWORD"),
 		StoreDriver:       lookup("STORE_DRIVER"),
 		StorePath:         lookup("STORE_PATH"),
+		PostgresURL:       lookup("POSTGRES_URL"),
+		DynamoEndpoint:    lookup("DYNAMODB_ENDPOINT"),
+		DynamoRegion:      lookup("AWS_REGION"),
+		DynamoTable:       lookup("DYNAMODB_TABLE"),
 	}
 	if config.Address == "" {
 		config.Address = ":8080"
@@ -72,6 +82,15 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 	}
 	if config.StorePath == "" {
 		config.StorePath = ".local/data/transactions.ndjson"
+	}
+	if config.StoreDriver == "postgres" && config.PostgresURL == "" {
+		return Config{}, fmt.Errorf("POSTGRES_URL is required for postgres storage")
+	}
+	if config.DynamoRegion == "" {
+		config.DynamoRegion = "us-west-2"
+	}
+	if config.DynamoTable == "" {
+		config.DynamoTable = "transaction-intake"
 	}
 	if rawTLS := lookup("KAFKA_TLS"); rawTLS != "" {
 		value, err := strconv.ParseBool(rawTLS)

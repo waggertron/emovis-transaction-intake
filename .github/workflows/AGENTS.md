@@ -19,7 +19,7 @@ Run `bash tests/ci/workflow_test.sh` and all referenced Make targets.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `ci.yml` | Runs unit, race, lint, build, static, Compose, and smoke gates. |
+| `ci.yml` | Runs static, component, end-to-end, infrastructure, and smoke gates without cloud apply. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

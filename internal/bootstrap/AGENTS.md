@@ -23,8 +23,9 @@ Run focused bootstrap tests and static analysis.
 | `config.go` | Loads required secrets, identity, address, and process mode. |
 | `id.go` | Generates cryptographically random RFC 4122 UUIDs. |
 | `server.go` | Constructs a resource-bounded HTTP server. |
+| `secrets` | Loads external configuration values through local and cloud provider boundaries. |
 | `bootstrap_test.go` | Specifies configuration, mode, server, and secure-ID behavior. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).
-- Children: none.
+- Child: [secrets/AGENTS.md](secrets/AGENTS.md).

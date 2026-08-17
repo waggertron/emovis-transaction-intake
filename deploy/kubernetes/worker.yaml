@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: transaction-intake-worker, namespace: transaction-intake}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: transaction-intake-worker}
+  template:
+    metadata:
+      labels: {app: transaction-intake-worker}
+    spec:
+      serviceAccountName: transaction-intake
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: public.ecr.aws/example/transaction-intake@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          args: [worker]
+          env:
+            - {name: STORE_DRIVER, value: dynamodb}
+            - {name: AWS_REGION, value: us-west-2}
+            - {name: DYNAMODB_TABLE, value: emovis-transaction-intake}
+            - {name: AWS_SECRET_ID, value: emovis-transaction-intake/api}
+            - {name: KAFKA_TLS, value: "true"}
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 256Mi}}
+          securityContext: {runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
