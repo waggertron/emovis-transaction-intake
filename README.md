@@ -1,8 +1,17 @@
 # Emovis Transaction Intake
 
-A small Go service that accepts billable toll transactions, validates them, stores them idempotently, and publishes review events to Kafka through a transactional outbox.
+This repository is a small, production-shaped tolling service. A roadside or partner system sends us one billable transaction; the API checks it, saves it safely, and hands a review event to Kafka for background processing.
 
-The original OpenAPI file was not supplied, so this repository uses an explicitly labeled [mock contract](api/openapi.yaml). Confirm that contract with the platform team before production use.
+If you only have a minute, run this:
+
+```bash
+make compose-up
+curl --fail http://127.0.0.1:8080/healthz
+```
+
+Then follow the request example below. The local API key is intentionally the visible test value `local-development-only-key`; there is no key-generation step for local work. When you are done, run `make compose-down`.
+
+The original OpenAPI file was not supplied, so this repository uses an explicitly labeled [mock contract](api/openapi.yaml). Treat that contract as the starting point for team review, not as the final production agreement.
 
 ## Run it locally
 
