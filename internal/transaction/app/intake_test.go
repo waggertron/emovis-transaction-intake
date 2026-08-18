@@ -26,11 +26,22 @@ func TestAcceptNewAndReplay(t *testing.T) {
 		k    StoreOutcomeKind
 		want ResultKind
 	}{{StoreAccepted, Accepted}, {StoreReplay, Replayed}} {
-		s := &fakeStore{outcome: StoreOutcome{Kind: x.k, EventID: "evt"}}
+		s := &fakeStore{outcome: StoreOutcome{Kind: x.k, TransactionID: "id", EventID: "evt"}}
 		r, e := NewIntakeService(s, time.Now, func() string { return "id" }).Accept(context.Background(), AcceptCommand{Transaction: tx()})
 		if e != nil || r.Kind != x.want || s.calls != 1 {
 			t.Fatalf("result=%+v err=%v", r, e)
 		}
+	}
+}
+
+func TestAcceptReplayReturnsPersistedTransactionID(t *testing.T) {
+	store := &fakeStore{outcome: StoreOutcome{Kind: StoreReplay, EventID: "evt-existing", TransactionID: "transaction-existing"}}
+	result, err := NewIntakeService(store, time.Now, func() string { return "transaction-new" }).Accept(context.Background(), AcceptCommand{Transaction: tx()})
+	if err != nil {
+		t.Fatalf("accept replay: %v", err)
+	}
+	if result.ID != "transaction-existing" || result.TransactionID != "transaction-existing" {
+		t.Fatalf("replay returned a generated transaction ID: %#v", result)
 	}
 }
 func TestAcceptRejectsMissingIdentifier(t *testing.T) {

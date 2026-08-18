@@ -85,7 +85,7 @@ func TestStoreAcceptsWithConditionalTransactionalWrite(t *testing.T) {
 
 	client := &fakeClient{}
 	result, err := NewStore(client, "transactions").Accept(context.Background(), dynamoAcceptance())
-	if err != nil || result.Kind != app.StoreAccepted || result.EventID != "evt-1" {
+	if err != nil || result.Kind != app.StoreAccepted || result.EventID != "evt-1" || result.TransactionID != dynamoAcceptance().Transaction.ID {
 		t.Fatalf("unexpected accept %#v, %v", result, err)
 	}
 	if client.getInput == nil || client.getInput.ConsistentRead == nil || !*client.getInput.ConsistentRead || client.writeInput == nil || len(client.writeInput.TransactItems) != 2 {
@@ -114,15 +114,16 @@ func TestStoreReturnsReplayOrConflictFromExistingIdentity(t *testing.T) {
 		{fingerprint: "different", want: app.StoreConflict},
 	} {
 		client := &fakeClient{item: map[string]types.AttributeValue{
-			"fingerprint": &types.AttributeValueMemberS{Value: test.fingerprint},
-			"event_id":    &types.AttributeValueMemberS{Value: "evt-original"},
+			"fingerprint":    &types.AttributeValueMemberS{Value: test.fingerprint},
+			"event_id":       &types.AttributeValueMemberS{Value: "evt-original"},
+			"transaction_id": &types.AttributeValueMemberS{Value: "transaction-original"},
 		}}
 		result, err := NewStore(client, "transactions").Accept(context.Background(), acceptance)
 		if err != nil || result.Kind != test.want || client.writeInput != nil {
 			t.Fatalf("unexpected identity result %#v, %v", result, err)
 		}
-		if test.want == app.StoreReplay && result.EventID != "evt-original" {
-			t.Fatalf("expected original event, got %q", result.EventID)
+		if test.want == app.StoreReplay && (result.EventID != "evt-original" || result.TransactionID != "transaction-original") {
+			t.Fatalf("expected original identity, got %#v", result)
 		}
 	}
 }
@@ -133,13 +134,14 @@ func TestStoreReclassifiesConditionalAcceptanceRace(t *testing.T) {
 	acceptance := dynamoAcceptance()
 	client := &fakeClient{
 		getItems: []map[string]types.AttributeValue{nil, {
-			"fingerprint": &types.AttributeValueMemberS{Value: acceptance.Fingerprint},
-			"event_id":    &types.AttributeValueMemberS{Value: "evt-winner"},
+			"fingerprint":    &types.AttributeValueMemberS{Value: acceptance.Fingerprint},
+			"event_id":       &types.AttributeValueMemberS{Value: "evt-winner"},
+			"transaction_id": &types.AttributeValueMemberS{Value: "transaction-winner"},
 		}},
 		writeErr: &types.TransactionCanceledException{},
 	}
 	result, err := NewStore(client, "transactions").Accept(context.Background(), acceptance)
-	if err != nil || result.Kind != app.StoreReplay || result.EventID != "evt-winner" {
+	if err != nil || result.Kind != app.StoreReplay || result.EventID != "evt-winner" || result.TransactionID != "transaction-winner" {
 		t.Fatalf("conditional race was not reclassified: %#v, %v", result, err)
 	}
 }

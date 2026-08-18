@@ -32,6 +32,9 @@ status="$(curl --silent --show-error -D "${temp_dir}/replay.headers" -o "${temp_
   --data "${request}" http://127.0.0.1:8080/ingest/v1/transactions)"
 [[ "${status}" == "200" ]] || { echo "expected replay 200, got ${status}" >&2; exit 1; }
 grep -Eiq '^Idempotent-Replay: true' "${temp_dir}/replay.headers"
+initial_id="$(sed -nE 's/.*"id":"([^"]+)".*/\1/p' "${temp_dir}/first.json")"
+replay_id="$(sed -nE 's/.*"id":"([^"]+)".*/\1/p' "${temp_dir}/replay.json")"
+[[ -n "${initial_id}" && "${replay_id}" == "${initial_id}" ]] || { echo "expected replay to return original transaction ID, got ${replay_id} after ${initial_id}" >&2; exit 1; }
 
 changed="${request/\"base_amount\":\"7.25\"/\"base_amount\":\"7.26\"}"
 status="$(curl --silent --show-error -o "${temp_dir}/conflict.json" -w '%{http_code}' \

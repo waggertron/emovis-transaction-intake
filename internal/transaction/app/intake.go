@@ -53,8 +53,9 @@ type Acceptance struct {
 }
 
 type StoreOutcome struct {
-	Kind    StoreOutcomeKind
-	EventID string
+	Kind          StoreOutcomeKind
+	TransactionID string
+	EventID       string
 }
 
 type IntakeStore interface {
@@ -129,7 +130,12 @@ func (service *IntakeService) Accept(ctx context.Context, command AcceptCommand)
 		result.Kind = Accepted
 		return result, nil
 	case StoreReplay:
+		if outcome.TransactionID == "" {
+			return AcceptResult{}, fmt.Errorf("replay outcome is missing transaction ID")
+		}
 		result.Kind = Replayed
+		result.ID = outcome.TransactionID
+		result.TransactionID = outcome.TransactionID
 		return result, nil
 	case StoreConflict:
 		return AcceptResult{}, ErrConflict

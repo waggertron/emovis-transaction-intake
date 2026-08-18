@@ -271,13 +271,13 @@ func runTransactionStoreContract(t *testing.T, factory storeFactory) {
 	store := factory(t)
 	accepted := contractAcceptance("evt-contract")
 	result, err := store.Accept(ctx, accepted)
-	if err != nil || result.Kind != app.StoreAccepted || result.EventID != accepted.Event.ID {
+	if err != nil || result.Kind != app.StoreAccepted || result.EventID != accepted.Event.ID || result.TransactionID != accepted.Transaction.ID {
 		t.Fatalf("accept: %#v, %v", result, err)
 	}
 	replay := accepted
 	replay.Event.ID = "evt-replacement"
 	result, err = store.Accept(ctx, replay)
-	if err != nil || result.Kind != app.StoreReplay || result.EventID != accepted.Event.ID {
+	if err != nil || result.Kind != app.StoreReplay || result.EventID != accepted.Event.ID || result.TransactionID != accepted.Transaction.ID {
 		t.Fatalf("replay: %#v, %v", result, err)
 	}
 	conflict := accepted

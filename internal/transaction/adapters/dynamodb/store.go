@@ -67,7 +67,7 @@ func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.
 	_, err = store.client.TransactWriteItems(ctx, &awssdk.TransactWriteItemsInput{TransactItems: []types.TransactWriteItem{
 		{Put: &types.Put{TableName: aws.String(store.table), ConditionExpression: condition, Item: map[string]types.AttributeValue{
 			"pk": &types.AttributeValueMemberS{Value: identityKey}, "sk": &types.AttributeValueMemberS{Value: "TRANSACTION"},
-			"fingerprint": &types.AttributeValueMemberS{Value: acceptance.Fingerprint}, "event_id": &types.AttributeValueMemberS{Value: acceptance.Event.ID},
+			"fingerprint": &types.AttributeValueMemberS{Value: acceptance.Fingerprint}, "transaction_id": &types.AttributeValueMemberS{Value: acceptance.Transaction.ID}, "event_id": &types.AttributeValueMemberS{Value: acceptance.Event.ID},
 			"payload": &types.AttributeValueMemberB{Value: transactionPayload},
 		}}},
 		{Put: &types.Put{TableName: aws.String(store.table), ConditionExpression: condition, Item: map[string]types.AttributeValue{
@@ -92,7 +92,7 @@ func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.
 		}
 		return app.StoreOutcome{}, fmt.Errorf("transact transaction and outbox: %w", err)
 	}
-	return app.StoreOutcome{Kind: app.StoreAccepted, EventID: acceptance.Event.ID}, nil
+	return app.StoreOutcome{Kind: app.StoreAccepted, TransactionID: acceptance.Transaction.ID, EventID: acceptance.Event.ID}, nil
 }
 
 func (store *Store) readIdentity(ctx context.Context, identityKey, fingerprint string) (app.StoreOutcome, bool, error) {
@@ -108,12 +108,13 @@ func (store *Store) readIdentity(ctx context.Context, identityKey, fingerprint s
 	}
 	if len(existing.Item) > 0 {
 		storedFingerprint, fingerprintOK := existing.Item["fingerprint"].(*types.AttributeValueMemberS)
+		transactionID, transactionOK := existing.Item["transaction_id"].(*types.AttributeValueMemberS)
 		eventID, eventOK := existing.Item["event_id"].(*types.AttributeValueMemberS)
-		if !fingerprintOK || !eventOK {
+		if !fingerprintOK || !transactionOK || !eventOK {
 			return app.StoreOutcome{}, false, fmt.Errorf("stored transaction identity is malformed")
 		}
 		if storedFingerprint.Value == fingerprint {
-			return app.StoreOutcome{Kind: app.StoreReplay, EventID: eventID.Value}, true, nil
+			return app.StoreOutcome{Kind: app.StoreReplay, TransactionID: transactionID.Value, EventID: eventID.Value}, true, nil
 		}
 		return app.StoreOutcome{Kind: app.StoreConflict}, true, nil
 	}

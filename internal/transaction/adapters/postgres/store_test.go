@@ -52,7 +52,7 @@ func TestStoreAcceptsTransactionAndOutboxInOneSQLTransaction(t *testing.T) {
 	mock.ExpectCommit()
 
 	result, err := NewStore(database).Accept(context.Background(), acceptance)
-	if err != nil || result.Kind != app.StoreAccepted || result.EventID != "evt-1" {
+	if err != nil || result.Kind != app.StoreAccepted || result.EventID != "evt-1" || result.TransactionID != acceptance.Transaction.ID {
 		t.Fatalf("unexpected accept result %#v, %v", result, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -78,14 +78,14 @@ func TestStoreReturnsReplayOrConflictFromLockedIdentity(t *testing.T) {
 			acceptance := postgresAcceptance()
 			mock.ExpectBegin()
 			mock.ExpectQuery(regexp.QuoteMeta(selectIdentitySQL)).WithArgs(acceptance.Transaction.PartnerID, acceptance.Transaction.ID).
-				WillReturnRows(sqlmock.NewRows([]string{"fingerprint", "event_id"}).AddRow(test.fingerprint, "evt-original"))
+				WillReturnRows(sqlmock.NewRows([]string{"id", "fingerprint", "event_id"}).AddRow("transaction-original", test.fingerprint, "evt-original"))
 			mock.ExpectCommit()
 			result, err := NewStore(database).Accept(context.Background(), acceptance)
 			if err != nil || result.Kind != test.want {
 				t.Fatalf("unexpected result %#v, %v", result, err)
 			}
-			if test.want == app.StoreReplay && result.EventID != "evt-original" {
-				t.Fatalf("expected original event, got %q", result.EventID)
+			if test.want == app.StoreReplay && (result.EventID != "evt-original" || result.TransactionID != "transaction-original") {
+				t.Fatalf("expected original identity, got %#v", result)
 			}
 			if err := mock.ExpectationsWereMet(); err != nil {
 				t.Fatal(err)
@@ -125,10 +125,10 @@ func TestStoreReclassifiesConcurrentUniqueRaceAsReplay(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(insertTransactionSQL)).WillReturnError(fakeSQLStateError("duplicate identity"))
 	mock.ExpectRollback()
 	mock.ExpectQuery(regexp.QuoteMeta(readIdentitySQL)).WithArgs(acceptance.Transaction.PartnerID, acceptance.Transaction.ID).
-		WillReturnRows(sqlmock.NewRows([]string{"fingerprint", "event_id"}).AddRow(acceptance.Fingerprint, "evt-winner"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "fingerprint", "event_id"}).AddRow("transaction-winner", acceptance.Fingerprint, "evt-winner"))
 
 	result, err := NewStore(database).Accept(context.Background(), acceptance)
-	if err != nil || result.Kind != app.StoreReplay || result.EventID != "evt-winner" {
+	if err != nil || result.Kind != app.StoreReplay || result.EventID != "evt-winner" || result.TransactionID != "transaction-winner" {
 		t.Fatalf("unique race was not reclassified: %#v, %v", result, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -159,7 +159,7 @@ func TestStoreConcurrencyClassificationConflictAndFailure(t *testing.T) {
 			if test.queryErr != nil {
 				query.WillReturnError(test.queryErr)
 			} else {
-				query.WillReturnRows(sqlmock.NewRows([]string{"fingerprint", "event_id"}).AddRow(test.fingerprint, "evt-winner"))
+				query.WillReturnRows(sqlmock.NewRows([]string{"id", "fingerprint", "event_id"}).AddRow("transaction-winner", test.fingerprint, "evt-winner"))
 			}
 			result, err := NewStore(database).Accept(context.Background(), acceptance)
 			if test.queryErr != nil && err == nil {

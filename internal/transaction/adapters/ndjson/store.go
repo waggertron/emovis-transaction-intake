@@ -16,8 +16,9 @@ import (
 )
 
 type storedTransaction struct {
-	fingerprint string
-	eventID     string
+	fingerprint   string
+	transactionID string
+	eventID       string
 }
 
 type storedEvent struct {
@@ -88,7 +89,7 @@ func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.
 	defer store.mu.Unlock()
 	if existing, found := store.transactions[key]; found {
 		if existing.fingerprint == acceptance.Fingerprint {
-			return app.StoreOutcome{Kind: app.StoreReplay, EventID: existing.eventID}, nil
+			return app.StoreOutcome{Kind: app.StoreReplay, TransactionID: existing.transactionID, EventID: existing.eventID}, nil
 		}
 		return app.StoreOutcome{Kind: app.StoreConflict}, nil
 	}
@@ -99,7 +100,7 @@ func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.
 	if err := store.apply(record); err != nil {
 		return app.StoreOutcome{}, err
 	}
-	return app.StoreOutcome{Kind: app.StoreAccepted, EventID: acceptance.Event.ID}, nil
+	return app.StoreOutcome{Kind: app.StoreAccepted, TransactionID: acceptance.Transaction.ID, EventID: acceptance.Event.ID}, nil
 }
 
 func (store *Store) ClaimPending(ctx context.Context, now time.Time, lease time.Duration, limit int) ([]app.PendingEvent, error) {
@@ -195,7 +196,7 @@ func (store *Store) apply(record logRecord) error {
 		}
 		acceptance := *record.Acceptance
 		key := acceptance.Transaction.Source + ":" + acceptance.Transaction.SourceReference
-		store.transactions[key] = storedTransaction{fingerprint: acceptance.Fingerprint, eventID: acceptance.Event.ID}
+		store.transactions[key] = storedTransaction{fingerprint: acceptance.Fingerprint, transactionID: acceptance.Transaction.ID, eventID: acceptance.Event.ID}
 		store.events[acceptance.Event.ID] = &storedEvent{event: acceptance.Event}
 	case "failed":
 		if record.Failure == nil {

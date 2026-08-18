@@ -119,7 +119,7 @@ func TestStorePersistsAcceptanceAndOriginalReplayAcrossRestart(t *testing.T) {
 	retry := ndjsonAcceptance()
 	retry.Event.ID = "evt-retry"
 	replayed, err := reopened.Accept(context.Background(), retry)
-	if err != nil || replayed.Kind != app.StoreReplay || replayed.EventID != "evt-1" {
+	if err != nil || replayed.Kind != app.StoreReplay || replayed.EventID != "evt-1" || replayed.TransactionID != retry.Transaction.ID {
 		t.Fatalf("replay: %#v, %v", replayed, err)
 	}
 	retry.Fingerprint = "changed"

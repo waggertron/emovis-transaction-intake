@@ -32,14 +32,14 @@ func TestStoreAcceptsAtomicallyAndReplaysOriginalEvent(t *testing.T) {
 	store := NewStore()
 	acceptance := testAcceptance()
 	first, err := store.Accept(context.Background(), acceptance)
-	if err != nil || first.Kind != app.StoreAccepted || first.EventID != "evt-1" {
+	if err != nil || first.Kind != app.StoreAccepted || first.EventID != "evt-1" || first.TransactionID != acceptance.Transaction.ID {
 		t.Fatalf("unexpected first result %#v, %v", first, err)
 	}
 
 	retry := acceptance
 	retry.Event.ID = "evt-retry"
 	second, err := store.Accept(context.Background(), retry)
-	if err != nil || second.Kind != app.StoreReplay || second.EventID != "evt-1" {
+	if err != nil || second.Kind != app.StoreReplay || second.EventID != "evt-1" || second.TransactionID != acceptance.Transaction.ID {
 		t.Fatalf("unexpected replay result %#v, %v", second, err)
 	}
 	if len(store.transactions) != 1 || len(store.events) != 1 {

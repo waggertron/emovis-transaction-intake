@@ -75,8 +75,12 @@ e2e_assert_replay_and_conflict() {
   status="$(curl --silent --show-error -D "${E2E_TEMP_DIR}/replay.headers" -o "${E2E_TEMP_DIR}/replay.json" -w '%{http_code}' \
     -H 'Content-Type: application/json' -H 'X-API-Key: local-development-only-key' \
     --data "${E2E_REQUEST}" "http://127.0.0.1:${port}/ingest/v1/transactions")"
-  [[ "${status}" == "200" ]] || { echo "expected replay 200, got ${status}" >&2; return 1; }
-  grep -Eiq '^Idempotent-Replay: true' "${E2E_TEMP_DIR}/replay.headers"
+	[[ "${status}" == "200" ]] || { echo "expected replay 200, got ${status}" >&2; return 1; }
+	grep -Eiq '^Idempotent-Replay: true' "${E2E_TEMP_DIR}/replay.headers"
+	local initial_id replay_id
+	initial_id="$(sed -nE 's/.*"id":"([^"]+)".*/\1/p' "${E2E_TEMP_DIR}/first.json")"
+	replay_id="$(sed -nE 's/.*"id":"([^"]+)".*/\1/p' "${E2E_TEMP_DIR}/replay.json")"
+	[[ -n "${initial_id}" && "${replay_id}" == "${initial_id}" ]] || { echo "expected replay to return original transaction ID, got ${replay_id} after ${initial_id}" >&2; return 1; }
 
   local changed="${E2E_REQUEST/\"base_amount\":\"7.25\"/\"base_amount\":\"7.26\"}"
   status="$(curl --silent --show-error -o "${E2E_TEMP_DIR}/conflict.json" -w '%{http_code}' \
