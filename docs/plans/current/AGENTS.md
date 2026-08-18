@@ -19,7 +19,7 @@ Run numbering, Markdown/link, and diff checks.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `2026-08-18-replay-transaction-id.md` | Tracks correction of the idempotent replay response so it returns the durable transaction ID. |
+| None | No active plan documents remain after the replay transaction-ID correction was archived. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

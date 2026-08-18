@@ -13,7 +13,7 @@
 4. [x] Return the durable transaction ID from every storage implementation and use it in the application result. Smoke and E2E scripts now assert the replay ID equals the initial ID.
 5. [x] Run focused application, adapter, HTTP contract, component, and E2E tests: passed. The Docker smoke path verifies `201` followed by `200` with the same transaction ID.
 6. [x] Run the full local validation gate: `GOCACHE=/tmp/emovis-gocache make validate` passed, including unit, race, coverage, contracts, components, E2E, infrastructure, security, documentation, and hierarchy checks.
-7. [ ] Commit, push, confirm hosted CI, and archive this plan.
+7. [x] Commit and push `43f40a2`, confirm the hosted CI run passed, and archive this plan.
 
 ## Validation Notes
 
