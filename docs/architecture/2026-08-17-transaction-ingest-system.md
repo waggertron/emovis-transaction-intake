@@ -46,7 +46,7 @@ The code follows ports and adapters.
 
 - The **domain** owns transaction values, deterministic validation, and canonical fingerprints. It does not import HTTP, Kafka, database, AWS, or configuration code.
 - The **application** owns the intake use case, idempotency outcomes, and the transactional-outbox conversation with storage.
-- The **HTTP adapter** bounds bodies, requires JSON, rejects unknown top-level fields, maps errors to the API contract, and exposes operational health endpoints.
+- The **HTTP adapter** bounds bodies, requires JSON, preserves presence/null distinctions, accepts unspecified schema properties, maps errors, and exposes operational health extensions.
 - The **storage adapters** implement one shared acceptance/outbox port. Memory, NDJSON, PostgreSQL, and DynamoDB are selectable implementations, not concurrent replicas.
 - The **Kafka adapter** publishes versioned review-candidate events after durable acceptance. Consumers deduplicate because delivery is at least once.
 - The **bootstrap and command packages** load configuration, choose adapters, configure authentication, and start API, worker, local, or topic-bootstrap modes.
@@ -69,7 +69,7 @@ The production-oriented AWS shape uses EKS, MSK, one explicitly selected Postgre
 
 The normal local configuration has `AUTH_MODE=disabled`, matching the supplied contract's `security: []`. Deployments can set `AUTH_MODE=api_key`; configured credentials are compared in constant time and provisioned outside Git. `TRANSACTION_TYPES` defines allowed event types and `DEFAULT_CURRENCY` supplies an omitted request currency.
 
-The service uses strict decoding, request-size bounds, SQL parameters, storage-specific atomicity, output-safe Kafka envelopes, TLS/SASL for cloud Kafka, and secret/vulnerability scanning. Liveness, readiness, and Prometheus-format metrics remain available at `/healthz`, `/readyz`, and `/metrics` as operational extensions to the supplied ingest contract.
+The service uses presence-aware decoding, request-size bounds, SQL parameters, storage-specific atomicity, output-safe Kafka envelopes, TLS/SASL for cloud Kafka, and secret/vulnerability scanning. Liveness, readiness, and Prometheus-format metrics remain available at `/healthz`, `/readyz`, and `/metrics` as operational extensions to the supplied ingest contract.
 
 ## Verification
 

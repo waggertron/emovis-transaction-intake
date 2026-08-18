@@ -7,7 +7,7 @@ Validate repository-owned external API and event contracts.
 Applies to static contract checks.
 
 ## Local rules
-- Cross-check contract content against executable adapter tests.
+- Cross-check the supplied OpenAPI baseline byte-for-byte and semantically against executable adapter tests.
 
 ## Usage
 Run after any OpenAPI or event-schema change.
@@ -18,8 +18,8 @@ Run `bash tests/contracts/openapi_test.sh`.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `openapi_test.sh` | Verifies required API paths, fields, responses, and headers. |
-| `openapi_semantic_test.go` | Parses the OpenAPI document and verifies operation, response, media-type, and transaction-schema semantics. |
+| `openapi_test.sh` | Verifies the API file remains identical to the supplied baseline. |
+| `openapi_semantic_test.go` | Parses the OpenAPI document and verifies supplied prose, operation, response, media-type, named-schema, and transaction semantics. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

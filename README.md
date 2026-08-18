@@ -23,7 +23,7 @@ curl --fail http://127.0.0.1:8080/healthz
 curl --fail http://127.0.0.1:8080/readyz
 ```
 
-The local stack starts Kafka, creates the topic, and starts the API plus worker. Local authentication is disabled by default; no API key is required.
+The local stack starts Kafka, creates the topic, initializes a private NDJSON volume, and starts the API plus worker. Accepted transactions and pending events survive an application restart. Local authentication is disabled by default; no API key is required.
 
 ```text
 X-API-Key: local-development-only-key
@@ -48,7 +48,7 @@ Stop the stack when finished:
 make compose-down
 ```
 
-For API-only work, use `make run-api`. It uses an in-memory store, listens on `:8080`, and does not publish events without a worker. Use `make run-local` only when Kafka is already available at `localhost:9092`.
+For API-only work, use `make run-api`. It uses an in-memory store, listens on `:8080`, is deliberately ephemeral, and does not publish events without a worker. Use `make run-local` only when Kafka is already available at `localhost:9092`.
 
 ## The commands developers use
 
@@ -107,6 +107,9 @@ See the [storage-selection ADR](docs/adr/2026-08-17-explicit-storage-infrastruct
 
 ## Architecture
 
+For a guided explanation of how the code accepts a transaction, why it uses a transactional outbox, and how and why Kafka is used, see [Transaction and Kafka Flow](docs/architecture/transaction-and-kafka-flow.md).
+The dated [OpenAPI-conformant architecture](docs/architecture/2026-08-18-openapi-contract-conformance.md) is the current source for contract boundaries, raw/canonical data, storage mappings, and durable local behavior.
+
 ### Request and delivery flow
 
 ```mermaid
@@ -137,7 +140,7 @@ partner / roadside system
                    Kafka publisher ──► review-candidate topic
 ```
 
-The API rejects malformed or unknown JSON fields, validates the billable transaction, and computes a canonical fingerprint. The idempotency boundary is `source:source_reference`. A replay returns the original system ID and does not create another event.
+The API rejects malformed JSON but accepts unspecified properties as required by the supplied schema. It distinguishes missing values from explicit nulls, preserves producer `location` and `metadata` bytes for audit use, validates the billable transaction, and computes a number-safe canonical fingerprint. The idempotency boundary is `source:source_reference`. A replay returns the original system ID and does not create another event.
 
 ### Dependency direction
 
@@ -155,7 +158,7 @@ The domain imports no transport, database, cloud, or Kafka package. Commands are
 
 The selected store atomically saves the accepted transaction and a pending event. A worker claims pending events in batches, publishes them to Kafka, and marks them published. Claims carry opaque ownership tokens; a worker whose lease expired cannot mark a reassigned event successful or failed. Failed events use bounded exponential retry and eventually become terminal failures. Delivery is at least once, so consumers must deduplicate by immutable `eventId`.
 
-Memory storage is concurrency-safe but ephemeral. NDJSON is durable and intended only for combined local mode. PostgreSQL and DynamoDB are repository implementations of the same storage port; they are not used simultaneously in one Terraform deployment.
+Memory storage is concurrency-safe but ephemeral. NDJSON is the durable default Compose store and is intended only for combined local mode. PostgreSQL and DynamoDB are repository implementations of the same storage port; they are not used simultaneously in one Terraform deployment.
 
 ### Kafka contract
 
@@ -168,13 +171,13 @@ The default topic is `transaction.review-candidates.v1`. Messages use `source:so
 - `local` — one process with a shared memory or NDJSON store and Kafka publisher.
 - `topic-bootstrap` — short-lived topic configuration command.
 
-Readiness checks the selected intake store with a bounded timeout. Kafka is asynchronous and is not an API readiness dependency. Liveness, readiness, and Prometheus metrics are exposed at `/healthz`, `/readyz`, and `/metrics`.
+Readiness checks the selected intake store with a bounded timeout. Kafka is asynchronous and is not an API readiness dependency. Liveness, readiness, and Prometheus metrics are exposed at `/healthz`, `/readyz`, and `/metrics` as operational extensions; optional `AUTH_MODE=api_key`, `401`, `405`, `413`, `415`, conflict `400`, and dependency `503` behavior are also outside the supplied producer contract.
 
 ### Cloud shape and security
 
 The AWS reference uses private subnets, EKS, MSK, one explicitly selected persistence backend, KMS encryption, IRSA, least-privilege workload IAM, Secrets Manager, non-root immutable images, and deletion protection defaults. Terraform validates and plans locally but never applies automatically. Real secret values, image digests, ingress/TLS/WAF choices, remote state, and account approval remain operator decisions.
 
-Security controls include constant-time API-key comparison, bounded request bodies, strict JSON decoding, SQL parameters, secret redaction, output-safe events, TLS/SASL for cloud Kafka, vulnerability and secret scans, and offline Kubernetes/IaC policy checks.
+Security controls include constant-time API-key comparison, bounded request bodies, presence-aware JSON decoding, SQL parameters, secret redaction, output-safe events, TLS/SASL for cloud Kafka, vulnerability and secret scans, and offline Kubernetes/IaC policy checks.
 
 ## Testing and repository guidance
 

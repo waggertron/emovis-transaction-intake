@@ -39,6 +39,16 @@ services:
     networks: [transaction-intake]
     restart: "no"
 
+  app-data-init:
+    image: alpine:3.22.1
+    user: "0:0"
+    command: ["chown", "65532:65532", "/data"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - app-data:/data
+
   app:
     build:
       context: .
@@ -49,6 +59,8 @@ services:
       API_KEY: local-development-only-key
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC: transaction.review-candidates.v1
+      STORE_DRIVER: ndjson
+      STORE_PATH: /data/transactions.ndjson
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -56,6 +68,10 @@ services:
         condition: service_healthy
       topic-bootstrap:
         condition: service_completed_successfully
+      app-data-init:
+        condition: service_completed_successfully
+    volumes:
+      - app-data:/data
     networks: [transaction-intake]
 
   postgres:
@@ -350,6 +366,7 @@ networks:
   transaction-intake:
 
 volumes:
+  app-data:
   postgres-component-data:
   dynamodb-component-data:
   ndjson-e2e-data:

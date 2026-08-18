@@ -7,7 +7,7 @@ This procedure is supplemental evidence and is never required to complete local 
 3. Confirm EKS has a private endpoint and the API/worker service account resolves to the expected IRSA role.
 4. Confirm MSK reports TLS-only client traffic, SASL/SCRAM enabled, encryption at rest, broker logging, and the expected topic partition/retention settings.
 5. Populate Secrets Manager through the approved secret-management workflow. Never place values in shell history, Terraform variables, manifests, logs, or screenshots.
-6. From an approved network path, submit a unique README-shaped transaction through the deployed ingress. Verify `201`, identical replay `200` with `Idempotent-Replay: true`, and changed replay `409`.
+6. From an approved network path, submit a unique README-shaped transaction through the deployed ingress. Verify `201`, identical replay `200` with `Idempotent-Replay: true`, and changed replay `400` as the repository conflict extension.
 7. Observe exactly one stable event ID at the authorized Kafka consumer, verify the key is `source:source_reference`, and confirm the envelope contains no credentials.
 8. Verify the selected DynamoDB or PostgreSQL store has one transaction and one published outbox record. Review API/worker logs, metrics, outbox backlog, MSK alarm state, and consumer lag for unexpected errors or secret/PII exposure.
 9. Record account ID, region, deployment revision, test transaction ID, UTC time, operator, and sanitized evidence in the organization's audit system—not in this repository.

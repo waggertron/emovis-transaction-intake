@@ -9,6 +9,7 @@ Applies to the memory adapter package.
 ## Local rules
 - Implement the application-owned storage contract exactly.
 - Preserve atomic acceptance/outbox and original event identity on replay.
+- Copy raw audit byte slices so caller mutation cannot change accepted state.
 
 ## Usage
 Use for unit tests and credential-free local operation.

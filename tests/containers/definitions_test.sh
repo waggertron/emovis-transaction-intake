@@ -28,12 +28,17 @@ for ignored in '**/.terraform' '*.tfplan' '*.tfstate' '*.tfstate.*'; do
   grep -Fxq "${ignored}" .dockerignore || { echo "Docker context does not ignore Terraform artifact: ${ignored}" >&2; exit 1; }
 done
 
-for service in kafka topic-bootstrap app; do
+for service in kafka topic-bootstrap app-data-init app; do
   grep -Eq "^  ${service}:" compose.yaml || {
     echo "missing Compose service: ${service}" >&2
     exit 1
   }
 done
+grep -A24 -E '^  app:' compose.yaml | grep -Fq 'STORE_DRIVER: ndjson' || { echo "default app must use durable NDJSON storage" >&2; exit 1; }
+grep -A24 -E '^  app:' compose.yaml | grep -Fq 'STORE_PATH: /data/transactions.ndjson' || { echo "default app NDJSON path missing" >&2; exit 1; }
+grep -A24 -E '^  app:' compose.yaml | grep -Fq 'app-data:/data' || { echo "default app durable volume missing" >&2; exit 1; }
+grep -A12 -E '^  app-data-init:' compose.yaml | grep -Fq 'cap_add: [CHOWN]' || { echo "default app volume init must use narrow CHOWN capability" >&2; exit 1; }
+grep -Eq '^  app-data:$' compose.yaml || { echo "default app named volume missing" >&2; exit 1; }
 for service in postgres dynamodb-local; do
   grep -Eq "^  ${service}:" compose.yaml || {
     echo "missing component Compose service: ${service}" >&2

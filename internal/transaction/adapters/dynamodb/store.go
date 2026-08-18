@@ -64,20 +64,24 @@ func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.
 		return app.StoreOutcome{}, fmt.Errorf("encode outbox event: %w", err)
 	}
 	condition := aws.String("attribute_not_exists(pk)")
+	transactionItem := map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: identityKey}, "sk": &types.AttributeValueMemberS{Value: "TRANSACTION"},
+		"fingerprint": &types.AttributeValueMemberS{Value: acceptance.Fingerprint}, "transaction_id": &types.AttributeValueMemberS{Value: acceptance.Transaction.ID}, "event_id": &types.AttributeValueMemberS{Value: acceptance.Event.ID},
+		"payload": &types.AttributeValueMemberB{Value: transactionPayload},
+	}
+	addRawAttributes(transactionItem, acceptance.Transaction.LocationRaw, acceptance.Transaction.MetadataRaw)
+	outboxItem := map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "EVENT#" + acceptance.Event.ID}, "sk": &types.AttributeValueMemberS{Value: "OUTBOX"},
+		"status": &types.AttributeValueMemberS{Value: "pending"}, "attempts": &types.AttributeValueMemberN{Value: "0"},
+		"dispatch_pk":   &types.AttributeValueMemberS{Value: "OUTBOX#PENDING"},
+		"dispatch_sk":   &types.AttributeValueMemberS{Value: timestamp(acceptance.Event.OccurredAt) + "#" + acceptance.Event.ID},
+		"occurred_at":   &types.AttributeValueMemberS{Value: acceptance.Event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")},
+		"event_payload": &types.AttributeValueMemberB{Value: eventPayload},
+	}
+	addRawAttributes(outboxItem, acceptance.Event.Payload.LocationRaw, acceptance.Event.Payload.MetadataRaw)
 	_, err = store.client.TransactWriteItems(ctx, &awssdk.TransactWriteItemsInput{TransactItems: []types.TransactWriteItem{
-		{Put: &types.Put{TableName: aws.String(store.table), ConditionExpression: condition, Item: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: identityKey}, "sk": &types.AttributeValueMemberS{Value: "TRANSACTION"},
-			"fingerprint": &types.AttributeValueMemberS{Value: acceptance.Fingerprint}, "transaction_id": &types.AttributeValueMemberS{Value: acceptance.Transaction.ID}, "event_id": &types.AttributeValueMemberS{Value: acceptance.Event.ID},
-			"payload": &types.AttributeValueMemberB{Value: transactionPayload},
-		}}},
-		{Put: &types.Put{TableName: aws.String(store.table), ConditionExpression: condition, Item: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: "EVENT#" + acceptance.Event.ID}, "sk": &types.AttributeValueMemberS{Value: "OUTBOX"},
-			"status": &types.AttributeValueMemberS{Value: "pending"}, "attempts": &types.AttributeValueMemberN{Value: "0"},
-			"dispatch_pk":   &types.AttributeValueMemberS{Value: "OUTBOX#PENDING"},
-			"dispatch_sk":   &types.AttributeValueMemberS{Value: timestamp(acceptance.Event.OccurredAt) + "#" + acceptance.Event.ID},
-			"occurred_at":   &types.AttributeValueMemberS{Value: acceptance.Event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")},
-			"event_payload": &types.AttributeValueMemberB{Value: eventPayload},
-		}}},
+		{Put: &types.Put{TableName: aws.String(store.table), ConditionExpression: condition, Item: transactionItem}},
+		{Put: &types.Put{TableName: aws.String(store.table), ConditionExpression: condition, Item: outboxItem}},
 	}})
 	if err != nil {
 		var raced *types.TransactionCanceledException
@@ -256,12 +260,27 @@ func decodePending(item map[string]types.AttributeValue) (app.PendingEvent, erro
 	if err := json.Unmarshal(payload.Value, &pending.Event); err != nil {
 		return app.PendingEvent{}, fmt.Errorf("decode pending outbox event: %w", err)
 	}
+	if raw, ok := item["location_raw"].(*types.AttributeValueMemberB); ok {
+		pending.Event.Payload.LocationRaw = append([]byte(nil), raw.Value...)
+	}
+	if raw, ok := item["metadata_raw"].(*types.AttributeValueMemberB); ok {
+		pending.Event.Payload.MetadataRaw = append([]byte(nil), raw.Value...)
+	}
 	attempts, err := strconv.Atoi(attemptsValue.Value)
 	if err != nil {
 		return app.PendingEvent{}, fmt.Errorf("decode pending outbox attempts: %w", err)
 	}
 	pending.Attempts = attempts
 	return pending, nil
+}
+
+func addRawAttributes(item map[string]types.AttributeValue, location, metadata []byte) {
+	if location != nil {
+		item["location_raw"] = &types.AttributeValueMemberB{Value: append([]byte(nil), location...)}
+	}
+	if metadata != nil {
+		item["metadata_raw"] = &types.AttributeValueMemberB{Value: append([]byte(nil), metadata...)}
+	}
 }
 
 func timestamp(value time.Time) string {

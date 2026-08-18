@@ -8,7 +8,8 @@ Applies under `tests/`.
 
 ## Local rules
 - Keep tests deterministic, locally runnable, and self-cleaning.
-- Unit tests remain the first proof for product behavior.
+- Unit tests remain the first proof for product behavior; contract, component, smoke, and E2E layers add wiring evidence only.
+- Preserve exact OpenAPI behavior, including nullable fields and lossless location/metadata passthrough, in fixtures and assertions.
 
 ## Usage
 Use child suites for command contracts, integration wiring, and smoke paths.

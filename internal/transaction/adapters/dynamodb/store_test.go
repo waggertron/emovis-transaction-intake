@@ -69,14 +69,15 @@ func (client *fakeClient) UpdateItem(_ context.Context, input *awssdk.UpdateItem
 
 func dynamoAcceptance() app.Acceptance {
 	transaction := domain.Transaction{
-		ID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", PartnerID: "partner-west",
-		OccurredAt: time.Date(2026, 8, 16, 20, 30, 0, 0, time.UTC), AmountMinor: 725,
-		Currency: "USD", AgencyID: "agency-17", PlazaID: "plaza-4", LaneID: "lane-2", VehicleClass: domain.VehicleClassCar,
+		ID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", Source: "partner-west", SourceReference: "source-ref",
+		TransactionType: "toll", TransactionTimeUTC: time.Date(2026, 8, 16, 20, 30, 0, 0, time.UTC),
+		BaseAmount: "7.25", Currency: "USD", TransponderNumber: "tag",
+		LocationRaw: json.RawMessage(`{ "lane" : 9007199254740993 }`), MetadataRaw: json.RawMessage(`{ "rate" : 12.50 }`),
 	}
 	fingerprint, _ := transaction.Fingerprint()
 	return app.Acceptance{Transaction: transaction, Fingerprint: fingerprint, Event: app.OutboxEvent{
 		ID: "evt-1", Type: app.ReviewCandidateEventType, SchemaVersion: 1, OccurredAt: time.Date(2026, 8, 16, 22, 0, 0, 0, time.UTC),
-		PartnerID: transaction.PartnerID, TransactionID: transaction.ID, Key: transaction.PartnerID + ":" + transaction.ID, Payload: transaction,
+		Source: transaction.Source, SourceReference: transaction.SourceReference, TransactionID: transaction.ID, Key: transaction.Source + ":" + transaction.SourceReference, Payload: transaction,
 	}}
 }
 
@@ -99,6 +100,13 @@ func TestStoreAcceptsWithConditionalTransactionalWrite(t *testing.T) {
 	outbox := client.writeInput.TransactItems[1].Put.Item
 	if outbox["dispatch_pk"].(*types.AttributeValueMemberS).Value != "OUTBOX#PENDING" || outbox["dispatch_sk"] == nil {
 		t.Fatalf("outbox is not indexed for dispatch: %#v", outbox)
+	}
+	transactionItem := client.writeInput.TransactItems[0].Put.Item
+	if string(transactionItem["location_raw"].(*types.AttributeValueMemberB).Value) != string(dynamoAcceptance().Transaction.LocationRaw) || string(transactionItem["metadata_raw"].(*types.AttributeValueMemberB).Value) != string(dynamoAcceptance().Transaction.MetadataRaw) {
+		t.Fatalf("transaction raw audit fields missing: %#v", transactionItem)
+	}
+	if string(outbox["location_raw"].(*types.AttributeValueMemberB).Value) != string(dynamoAcceptance().Event.Payload.LocationRaw) || string(outbox["metadata_raw"].(*types.AttributeValueMemberB).Value) != string(dynamoAcceptance().Event.Payload.MetadataRaw) {
+		t.Fatalf("outbox raw audit fields missing: %#v", outbox)
 	}
 }
 
@@ -156,6 +164,8 @@ func TestStoreClaimsDueOutboxEventsWithConditionalLease(t *testing.T) {
 			"pk":            &types.AttributeValueMemberS{Value: "EVENT#evt-1"},
 			"event_payload": &types.AttributeValueMemberB{Value: payload},
 			"attempts":      &types.AttributeValueMemberN{Value: "2"},
+			"location_raw":  &types.AttributeValueMemberB{Value: dynamoAcceptance().Event.Payload.LocationRaw},
+			"metadata_raw":  &types.AttributeValueMemberB{Value: dynamoAcceptance().Event.Payload.MetadataRaw},
 		},
 		{
 			"pk":            &types.AttributeValueMemberS{Value: "EVENT#evt-raced"},
@@ -167,6 +177,9 @@ func TestStoreClaimsDueOutboxEventsWithConditionalLease(t *testing.T) {
 	events, err := NewStore(client, "transactions").ClaimPending(context.Background(), now, 30*time.Second, 10)
 	if err != nil || len(events) != 1 || events[0].Event.ID != "evt-1" || events[0].Attempts != 2 {
 		t.Fatalf("unexpected claim %#v, %v", events, err)
+	}
+	if string(events[0].Event.Payload.LocationRaw) != string(dynamoAcceptance().Event.Payload.LocationRaw) || string(events[0].Event.Payload.MetadataRaw) != string(dynamoAcceptance().Event.Payload.MetadataRaw) {
+		t.Fatalf("claimed event lost raw bytes: %#v", events[0].Event.Payload)
 	}
 	if client.queryInput == nil || aws.ToString(client.queryInput.IndexName) != "outbox-dispatch" || aws.ToInt32(client.queryInput.Limit) != 10 {
 		t.Fatalf("unexpected dispatch query: %#v", client.queryInput)

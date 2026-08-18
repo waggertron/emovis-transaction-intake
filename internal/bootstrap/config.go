@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 type Mode string
@@ -68,8 +69,8 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 	if config.DefaultCurrency == "" {
 		config.DefaultCurrency = "USD"
 	}
-	if len(config.DefaultCurrency) != 3 || strings.ToUpper(config.DefaultCurrency) != config.DefaultCurrency {
-		return Config{}, fmt.Errorf("DEFAULT_CURRENCY must be three uppercase letters")
+	if !utf8.ValidString(config.DefaultCurrency) || utf8.RuneCountInString(config.DefaultCurrency) > 8 {
+		return Config{}, fmt.Errorf("DEFAULT_CURRENCY must be at most 8 characters")
 	}
 	config.TransactionTypes = map[string]struct{}{}
 	for _, item := range strings.Split(lookup("TRANSACTION_TYPES"), ",") {

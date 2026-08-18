@@ -10,6 +10,7 @@ Applies to the Kafka adapter package.
 - Preserve stable event IDs, keys, schema versions, and at-least-once semantics.
 - Never include credentials, API keys, or unnecessary PII in messages or errors.
 - Test message mapping with a deterministic writer before broker integration.
+- Emit arbitrary producer objects from number-safe raw JSON without converting values through `float64`.
 
 ## Usage
 Construct with explicit topic and secured writer configuration at bootstrap.

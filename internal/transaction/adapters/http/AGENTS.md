@@ -7,7 +7,7 @@ Expose the transaction application through the documented HTTP API.
 Applies to the HTTP adapter package.
 
 ## Local rules
-- Bound request bodies, reject unknown JSON fields, and map errors without leaking internals.
+- Bound request bodies, preserve missing/null distinctions, accept unspecified schema properties, and map errors without leaking internals.
 - Require the documented JSON media type for transaction intake.
 - Authenticate state-changing requests and derive partner identity from credentials.
 - Keep handlers limited to transport parsing, application calls, and response mapping.

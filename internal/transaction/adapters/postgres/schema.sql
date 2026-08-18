@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     source_reference VARCHAR(128) NOT NULL,
     fingerprint VARCHAR(64) NOT NULL,
     payload JSONB NOT NULL,
+    location_raw BYTEA,
+    metadata_raw BYTEA,
     event_id TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
@@ -14,6 +16,8 @@ CREATE TABLE IF NOT EXISTS transactions (
 CREATE TABLE IF NOT EXISTS outbox_events (
     event_id TEXT PRIMARY KEY,
     event_payload JSONB NOT NULL,
+    location_raw BYTEA,
+    metadata_raw BYTEA,
     occurred_at TIMESTAMPTZ NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('pending', 'published', 'failed')),
     attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
@@ -26,6 +30,10 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 );
 
 ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS claim_token TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS location_raw BYTEA;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS metadata_raw BYTEA;
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS location_raw BYTEA;
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS metadata_raw BYTEA;
 
 CREATE INDEX IF NOT EXISTS outbox_dispatch_idx
     ON outbox_events (status, retry_at, lease_until, occurred_at)

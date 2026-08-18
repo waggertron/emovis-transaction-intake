@@ -20,7 +20,7 @@ Run the API contract test and HTTP adapter suite.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `openapi.yaml` | Defines transaction intake and operational HTTP endpoints. |
+| `openapi.yaml` | Preserves the exact supplied transaction-ingest contract; operational extensions are documented elsewhere. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

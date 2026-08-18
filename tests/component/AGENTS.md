@@ -7,7 +7,7 @@ Run shared production-adapter behavior against realistic local service substitut
 Applies under `tests/component/`.
 
 ## Local rules
-- Run unit-level memory and NDJSON contracts without containers.
+- Run unit-level memory and NDJSON contracts without containers, including exact raw location/metadata retention.
 - Require explicit environment configuration for PostgreSQL and DynamoDB Local contracts.
 - Use unique test state and clean all rows, tables, files, containers, volumes, and networks.
 - Never silently replace a requested real component with a fake.
@@ -21,7 +21,7 @@ Run the focused contract, then the relevant component target, then aggregate val
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `store_contract_test.go` | Defines the shared transaction/outbox behavioral contract and always runs it against memory and NDJSON. |
+| `store_contract_test.go` | Defines the shared transaction/outbox behavioral contract, including canonical idempotency and raw audit passthrough, and always runs it against memory and NDJSON. |
 | `postgres.sh` | Starts isolated Compose PostgreSQL, runs its shared production-adapter contract, and removes all project state. |
 | `dynamodb.sh` | Starts isolated DynamoDB Local, runs production table bootstrap and the shared store contract, and removes all project state. |
 | `secrets.sh` | Runs the production local secret provider against real filesystem lookup, reload, rejection, and redaction behavior. |
