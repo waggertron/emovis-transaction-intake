@@ -107,6 +107,8 @@ See the [storage-selection ADR](docs/adr/2026-08-17-explicit-storage-infrastruct
 
 ## Architecture
 
+For a guided explanation of how the code accepts a transaction, why it uses a transactional outbox, and how and why Kafka is used, see [Transaction and Kafka Flow](docs/architecture/transaction-and-kafka-flow.md).
+
 ### Request and delivery flow
 
 ```mermaid
