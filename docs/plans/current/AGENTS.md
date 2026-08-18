@@ -19,7 +19,7 @@ Run numbering, Markdown/link, and diff checks.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| None | No active plan documents remain after the replay transaction-ID correction was archived. |
+| `2026-08-18T08-26-05-0700-openapi-contract-conformance.md` | Tracks exact supplied-contract restoration, test-first behavior alignment, raw passthrough fidelity, durable local defaults, and complete delivery evidence. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

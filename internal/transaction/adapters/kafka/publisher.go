@@ -33,7 +33,8 @@ func (publisher *Publisher) Publish(ctx context.Context, event app.OutboxEvent) 
 			ID: event.Payload.ID, Source: event.Payload.Source, SourceReference: event.Payload.SourceReference,
 			TransactionType: event.Payload.TransactionType, TransactionTimeUTC: event.Payload.TransactionTimeUTC.UTC().Format(time.RFC3339Nano),
 			BaseAmount: event.Payload.BaseAmount, Currency: event.Payload.Currency, Plate: event.Payload.Plate,
-			TransponderNumber: event.Payload.TransponderNumber, Location: event.Payload.Location, Metadata: event.Payload.Metadata,
+			TransponderNumber: event.Payload.TransponderNumber,
+			Location:          rawObject(event.Payload.LocationRaw, event.Payload.Location), Metadata: rawObject(event.Payload.MetadataRaw, event.Payload.Metadata),
 		},
 	})
 	if err != nil {
@@ -68,15 +69,26 @@ type eventEnvelope struct {
 }
 
 type transactionPayload struct {
-	ID                 string         `json:"id"`
-	Source             string         `json:"source"`
-	SourceReference    string         `json:"source_reference"`
-	TransactionType    string         `json:"transaction_type"`
-	TransactionTimeUTC string         `json:"transaction_time_utc"`
-	BaseAmount         string         `json:"base_amount"`
-	Currency           string         `json:"currency"`
-	Plate              *domain.Plate  `json:"plate,omitempty"`
-	TransponderNumber  string         `json:"transponder_number,omitempty"`
-	Location           map[string]any `json:"location,omitempty"`
-	Metadata           map[string]any `json:"metadata,omitempty"`
+	ID                 string          `json:"id"`
+	Source             string          `json:"source"`
+	SourceReference    string          `json:"source_reference"`
+	TransactionType    string          `json:"transaction_type"`
+	TransactionTimeUTC string          `json:"transaction_time_utc"`
+	BaseAmount         string          `json:"base_amount"`
+	Currency           string          `json:"currency"`
+	Plate              *domain.Plate   `json:"plate,omitempty"`
+	TransponderNumber  string          `json:"transponder_number,omitempty"`
+	Location           json.RawMessage `json:"location,omitempty"`
+	Metadata           json.RawMessage `json:"metadata,omitempty"`
+}
+
+func rawObject(raw json.RawMessage, parsed map[string]any) json.RawMessage {
+	if len(raw) > 0 {
+		return raw
+	}
+	if parsed == nil {
+		return nil
+	}
+	payload, _ := json.Marshal(parsed)
+	return payload
 }

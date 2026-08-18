@@ -28,7 +28,7 @@ roadside or partner system
 
 ### 1. HTTP intake
 
-A client sends JSON to `POST /ingest/v1/transactions`. The [HTTP adapter](../../internal/transaction/adapters/http/handler.go) limits the request body, requires the JSON media type, rejects unknown fields, parses the transaction timestamp, and optionally authenticates an API key. It translates the request into the transport-independent transaction type used by the application.
+A client sends JSON to `POST /ingest/v1/transactions`. The [HTTP adapter](../../internal/transaction/adapters/http/handler.go) limits the request body, requires the JSON media type, distinguishes missing and null values, accepts unspecified schema properties, parses the transaction timestamp, and optionally authenticates an API key. It translates the request into the transport-independent transaction type used by the application while retaining raw audit objects.
 
 ### 2. Validation and idempotency
 

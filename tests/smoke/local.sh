@@ -21,7 +21,7 @@ curl --fail --silent --show-error --retry 20 --retry-delay 1 --retry-all-errors 
   http://127.0.0.1:8080/healthz >"${temp_dir}/health.json"
 grep -Fq '"status":"ok"' "${temp_dir}/health.json"
 
-request='{"source":"local-smoke","source_reference":"smoke-0001","transaction_type":"toll","transaction_time_utc":"2026-08-16T20:30:00Z","base_amount":"7.25","currency":"USD","transponder_number":"0180012345678"}'
+request='{"source":"local-smoke","source_reference":"smoke-0001","transaction_type":"toll","transaction_time_utc":"2026-08-16T20:30:00Z","base_amount":"7.25","currency":"USD","transponder_number":"0180012345678","location":{"lane":9007199254740993},"metadata":{"rate":12.50}}'
 status="$(curl --silent --show-error -D "${temp_dir}/first.headers" -o "${temp_dir}/first.json" -w '%{http_code}' \
   -H 'Content-Type: application/json' -H 'X-API-Key: local-development-only-key' \
   --data "${request}" http://127.0.0.1:8080/ingest/v1/transactions)"
@@ -35,6 +35,16 @@ grep -Eiq '^Idempotent-Replay: true' "${temp_dir}/replay.headers"
 initial_id="$(sed -nE 's/.*"id":"([^"]+)".*/\1/p' "${temp_dir}/first.json")"
 replay_id="$(sed -nE 's/.*"id":"([^"]+)".*/\1/p' "${temp_dir}/replay.json")"
 [[ -n "${initial_id}" && "${replay_id}" == "${initial_id}" ]] || { echo "expected replay to return original transaction ID, got ${replay_id} after ${initial_id}" >&2; exit 1; }
+
+docker compose -p "${project}" -f compose.yaml restart app >/dev/null
+curl --fail --silent --show-error --retry 20 --retry-delay 1 --retry-all-errors \
+  http://127.0.0.1:8080/readyz >"${temp_dir}/restart-ready.json"
+status="$(curl --silent --show-error -o "${temp_dir}/restart-replay.json" -w '%{http_code}' \
+  -H 'Content-Type: application/json' -H 'X-API-Key: local-development-only-key' \
+  --data "${request}" http://127.0.0.1:8080/ingest/v1/transactions)"
+[[ "${status}" == "200" ]] || { echo "expected durable replay 200 after restart, got ${status}" >&2; exit 1; }
+restart_id="$(sed -nE 's/.*"id":"([^"]+)".*/\1/p' "${temp_dir}/restart-replay.json")"
+[[ "${restart_id}" == "${initial_id}" ]] || { echo "restart replay changed transaction ID" >&2; exit 1; }
 
 changed="${request/\"base_amount\":\"7.25\"/\"base_amount\":\"7.26\"}"
 status="$(curl --silent --show-error -o "${temp_dir}/conflict.json" -w '%{http_code}' \
@@ -54,6 +64,8 @@ grep -Fq '"eventType":"transaction.review-candidate"' "${temp_dir}/event.json"
 grep -Fq '"schemaVersion":1' "${temp_dir}/event.json"
 grep -Eq '"eventId":"[^"]+"' "${temp_dir}/event.json"
 grep -Fq '"source_reference":"smoke-0001"' "${temp_dir}/event.json"
+grep -Fq '"lane":9007199254740993' "${temp_dir}/event.json"
+grep -Fq '"rate":12.50' "${temp_dir}/event.json"
 grep -Fq 'local-smoke:smoke-0001|' "${temp_dir}/event.json"
 if grep -Eiq 'api.?key|authorization|sasl|password|payment' "${temp_dir}/event.json"; then
   echo "Kafka event contains a forbidden credential or payment field" >&2

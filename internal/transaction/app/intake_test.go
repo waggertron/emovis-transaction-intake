@@ -19,7 +19,7 @@ func (s *fakeStore) Accept(_ context.Context, a Acceptance) (StoreOutcome, error
 	return s.outcome, s.err
 }
 func tx() domain.Transaction {
-	return domain.Transaction{Source: "source", SourceReference: "ref", TransactionType: "toll", TransactionTimeUTC: time.Now(), BaseAmount: "1.25", TransponderNumber: "tag"}
+	return domain.Transaction{Source: "source", SourceReference: "ref", TransactionType: "toll", TransactionTimeUTC: time.Now().UTC(), BaseAmount: "1.25", TransponderNumber: "tag"}
 }
 func TestAcceptNewAndReplay(t *testing.T) {
 	for _, x := range []struct {
@@ -40,7 +40,7 @@ func TestAcceptReplayReturnsPersistedTransactionID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("accept replay: %v", err)
 	}
-	if result.ID != "transaction-existing" || result.TransactionID != "transaction-existing" {
+	if result.ID != "transaction-existing" {
 		t.Fatalf("replay returned a generated transaction ID: %#v", result)
 	}
 }

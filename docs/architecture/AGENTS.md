@@ -29,7 +29,8 @@ Read this directory before adding a service boundary, storage adapter, Kafka wor
 
 | Element | Behavior |
 | --- | --- |
-| `2026-08-17-transaction-ingest-system.md` | Current end-to-end description of the supplied ingest contract, boundaries, outbox, runtime modes, local confirmation paths, cloud shape, and operations. |
+| `2026-08-17-transaction-ingest-system.md` | Historical pre-conformance end-to-end system description. |
+| `2026-08-18-openapi-contract-conformance.md` | Current architecture for exact contract handling, raw/canonical JSON, storage mappings, durable local defaults, and verification. |
 | `transaction-and-kafka-flow.md` | Explains how a transaction moves from HTTP intake through durable storage and the outbox to Kafka, including the reasons for Kafka and its delivery guarantees. |
 
 ## Instruction hierarchy

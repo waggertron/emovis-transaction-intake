@@ -63,8 +63,14 @@ func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.
 		transactionID: acceptance.Transaction.ID,
 		eventID:       acceptance.Event.ID,
 	}
-	store.events[acceptance.Event.ID] = &storedEvent{event: acceptance.Event}
+	store.events[acceptance.Event.ID] = &storedEvent{event: cloneEvent(acceptance.Event)}
 	return app.StoreOutcome{Kind: app.StoreAccepted, TransactionID: acceptance.Transaction.ID, EventID: acceptance.Event.ID}, nil
+}
+
+func cloneEvent(event app.OutboxEvent) app.OutboxEvent {
+	event.Payload.LocationRaw = append([]byte(nil), event.Payload.LocationRaw...)
+	event.Payload.MetadataRaw = append([]byte(nil), event.Payload.MetadataRaw...)
+	return event
 }
 
 func (store *Store) ClaimPending(ctx context.Context, now time.Time, lease time.Duration, limit int) ([]app.PendingEvent, error) {

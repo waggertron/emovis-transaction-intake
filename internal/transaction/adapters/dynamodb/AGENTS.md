@@ -11,6 +11,7 @@ Applies to the DynamoDB adapter package.
 - Keep partner/transaction identity and outbox records in one table contract.
 - Classify conditional races as replay or conflict after rereading identity.
 - Paginate filtered dispatch candidates and condition completion on the current claim token.
+- Preserve exact producer object bytes as optional binary attributes with backward-safe reads.
 
 ## Usage
 Select through `STORE_DRIVER=dynamodb` with IAM-provided access.

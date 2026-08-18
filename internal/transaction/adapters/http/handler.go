@@ -1,14 +1,17 @@
 package httpadapter
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"regexp"
 	"time"
+	"unicode/utf8"
 
 	"github.com/waggertron/emovis-transaction-intake/internal/transaction/app"
 	"github.com/waggertron/emovis-transaction-intake/internal/transaction/domain"
@@ -82,8 +85,7 @@ func (handler *handler) transactions(response http.ResponseWriter, request *http
 
 	var input transactionRequest
 	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
+	if err := decoder.Decode(&input.fields); err != nil {
 		var maxBytesError *http.MaxBytesError
 		if errors.As(err, &maxBytesError) {
 			writeError(response, http.StatusRequestEntityTooLarge, "request_too_large", "request body is too large", requestID)
@@ -97,13 +99,10 @@ func (handler *handler) transactions(response http.ResponseWriter, request *http
 		return
 	}
 
-	transaction, err := input.toDomain(partnerID)
+	transaction, err := input.toDomain(partnerID, handler.defaultCurrency)
 	if err != nil {
 		writeError(response, http.StatusBadRequest, "invalid_transaction", "transaction is invalid", requestID)
 		return
-	}
-	if transaction.Currency == "" {
-		transaction.Currency = handler.defaultCurrency
 	}
 	result, err := handler.intake.Accept(request.Context(), app.AcceptCommand{Transaction: transaction, CorrelationID: requestID})
 	if err != nil {
@@ -162,32 +161,141 @@ func (handler *handler) metrics(response http.ResponseWriter, request *http.Requ
 }
 
 type transactionRequest struct {
-	Source             string         `json:"source"`
-	SourceReference    string         `json:"source_reference"`
-	TransactionType    string         `json:"transaction_type"`
-	TransactionTimeUTC string         `json:"transaction_time_utc"`
-	BaseAmount         string         `json:"base_amount"`
-	Currency           string         `json:"currency"`
-	Plate              *domain.Plate  `json:"plate"`
-	TransponderNumber  string         `json:"transponder_number"`
-	Location           map[string]any `json:"location"`
-	Metadata           map[string]any `json:"metadata"`
+	fields map[string]json.RawMessage
 }
 
-func (input transactionRequest) toDomain(partnerID string) (domain.Transaction, error) {
-	occurredAt, err := time.Parse(time.RFC3339, input.TransactionTimeUTC)
+func (input transactionRequest) toDomain(partnerID, defaultCurrency string) (domain.Transaction, error) {
+	source, err := input.requiredString("source")
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+	sourceReference, err := input.requiredString("source_reference")
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+	transactionType, err := input.requiredString("transaction_type")
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+	timestamp, err := input.requiredString("transaction_time_utc")
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+	baseAmount, err := input.requiredString("base_amount")
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+	occurredAt, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+	_, offset := occurredAt.Zone()
+	if offset != 0 {
+		return domain.Transaction{}, errors.New("transaction_time_utc must use UTC")
+	}
+
+	currency := defaultCurrency
+	if raw, found := input.fields["currency"]; found && !isNull(raw) {
+		if err := json.Unmarshal(raw, &currency); err != nil {
+			return domain.Transaction{}, fmt.Errorf("currency: %w", err)
+		}
+	}
+	if utf8.RuneCountInString(currency) > 8 {
+		return domain.Transaction{}, errors.New("currency is too long")
+	}
+	transponder := ""
+	if raw, found := input.fields["transponder_number"]; found && !isNull(raw) {
+		if err := json.Unmarshal(raw, &transponder); err != nil {
+			return domain.Transaction{}, fmt.Errorf("transponder_number: %w", err)
+		}
+	}
+	plate, err := input.optionalPlate()
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+	location, locationRaw, err := input.optionalObject("location")
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+	metadata, metadataRaw, err := input.optionalObject("metadata")
 	if err != nil {
 		return domain.Transaction{}, err
 	}
 	transaction := domain.Transaction{
-		ID: "", Source: input.Source, SourceReference: input.SourceReference,
-		TransactionType: input.TransactionType, TransactionTimeUTC: occurredAt.UTC(),
-		BaseAmount: input.BaseAmount, Currency: input.Currency, Plate: input.Plate,
-		TransponderNumber: input.TransponderNumber, Location: input.Location, Metadata: input.Metadata,
+		Source: source, SourceReference: sourceReference, TransactionType: transactionType,
+		TransactionTimeUTC: occurredAt, BaseAmount: baseAmount, Currency: currency, Plate: plate,
+		TransponderNumber: transponder, Location: location, Metadata: metadata,
+		LocationRaw: locationRaw, MetadataRaw: metadataRaw,
 	}
 	_ = partnerID
 	return transaction, nil
 }
+
+func (input transactionRequest) requiredString(name string) (string, error) {
+	raw, found := input.fields[name]
+	if !found || isNull(raw) {
+		return "", fmt.Errorf("%s is required", name)
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", fmt.Errorf("%s: %w", name, err)
+	}
+	return value, nil
+}
+
+func (input transactionRequest) optionalPlate() (*domain.Plate, error) {
+	raw, found := input.fields["plate"]
+	if !found {
+		return nil, nil
+	}
+	if isNull(raw) {
+		return nil, errors.New("plate cannot be null")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return nil, errors.New("plate must be an object")
+	}
+	number, err := requiredRawString(fields, "number")
+	if err != nil {
+		return nil, err
+	}
+	jurisdiction, err := requiredRawString(fields, "jurisdiction")
+	if err != nil {
+		return nil, err
+	}
+	return &domain.Plate{Number: number, Jurisdiction: jurisdiction}, nil
+}
+
+func (input transactionRequest) optionalObject(name string) (map[string]any, json.RawMessage, error) {
+	raw, found := input.fields[name]
+	if !found {
+		return nil, nil, nil
+	}
+	if isNull(raw) {
+		return nil, nil, fmt.Errorf("%s cannot be null", name)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value map[string]any
+	if err := decoder.Decode(&value); err != nil || value == nil {
+		return nil, nil, fmt.Errorf("%s must be an object", name)
+	}
+	return value, append(json.RawMessage(nil), raw...), nil
+}
+
+func requiredRawString(fields map[string]json.RawMessage, name string) (string, error) {
+	raw, found := fields[name]
+	if !found || isNull(raw) {
+		return "", fmt.Errorf("plate.%s is required", name)
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", fmt.Errorf("plate.%s: %w", name, err)
+	}
+	return value, nil
+}
+
+func isNull(raw json.RawMessage) bool { return bytes.Equal(bytes.TrimSpace(raw), []byte("null")) }
 
 func ensureJSONEnd(decoder *json.Decoder) error {
 	var extra any

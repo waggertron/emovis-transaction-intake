@@ -43,6 +43,27 @@ func TestLoadConfigRejectsUnknownStoreDriver(t *testing.T) {
 	}
 }
 
+func TestLoadConfigAcceptsContractCurrencyAndRuntimeTransactionTypes(t *testing.T) {
+	t.Parallel()
+	values := map[string]string{"DEFAULT_CURRENCY": "US-DOLL", "TRANSACTION_TYPES": "toll, video-toll,interop"}
+	config, err := LoadConfig(func(name string) string { return values[name] })
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if config.DefaultCurrency != "US-DOLL" {
+		t.Fatalf("currency=%q", config.DefaultCurrency)
+	}
+	for _, transactionType := range []string{"toll", "video-toll", "interop"} {
+		if _, ok := config.TransactionTypes[transactionType]; !ok {
+			t.Errorf("missing type %q", transactionType)
+		}
+	}
+	values["DEFAULT_CURRENCY"] = "123456789"
+	if _, err := LoadConfig(func(name string) string { return values[name] }); err == nil {
+		t.Fatal("expected over-eight-character default currency failure")
+	}
+}
+
 func TestLoadConfigRequiresAndProtectsPostgresConfiguration(t *testing.T) {
 	t.Parallel()
 	base := map[string]string{"API_KEY": "key", "PARTNER_ID": "partner", "STORE_DRIVER": "postgres"}

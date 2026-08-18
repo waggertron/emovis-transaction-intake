@@ -32,11 +32,13 @@ type storedEvent struct {
 }
 
 type logRecord struct {
-	Kind       string              `json:"kind"`
-	Acceptance *app.Acceptance     `json:"acceptance,omitempty"`
-	Failure    *app.PublishFailure `json:"failure,omitempty"`
-	EventID    string              `json:"eventId,omitempty"`
-	RecordedAt time.Time           `json:"recordedAt,omitempty"`
+	Kind        string              `json:"kind"`
+	Acceptance  *app.Acceptance     `json:"acceptance,omitempty"`
+	Failure     *app.PublishFailure `json:"failure,omitempty"`
+	EventID     string              `json:"eventId,omitempty"`
+	RecordedAt  time.Time           `json:"recordedAt,omitempty"`
+	LocationRaw []byte              `json:"locationRaw,omitempty"`
+	MetadataRaw []byte              `json:"metadataRaw,omitempty"`
 }
 
 type Store struct {
@@ -93,7 +95,9 @@ func (store *Store) Accept(ctx context.Context, acceptance app.Acceptance) (app.
 		}
 		return app.StoreOutcome{Kind: app.StoreConflict}, nil
 	}
-	record := logRecord{Kind: "accepted", Acceptance: &acceptance}
+	record := logRecord{Kind: "accepted", Acceptance: &acceptance,
+		LocationRaw: append([]byte(nil), acceptance.Transaction.LocationRaw...),
+		MetadataRaw: append([]byte(nil), acceptance.Transaction.MetadataRaw...)}
 	if err := store.append(record); err != nil {
 		return app.StoreOutcome{}, err
 	}
@@ -195,6 +199,14 @@ func (store *Store) apply(record logRecord) error {
 			return fmt.Errorf("accepted record has no acceptance")
 		}
 		acceptance := *record.Acceptance
+		if record.LocationRaw != nil {
+			acceptance.Transaction.LocationRaw = append([]byte(nil), record.LocationRaw...)
+			acceptance.Event.Payload.LocationRaw = append([]byte(nil), record.LocationRaw...)
+		}
+		if record.MetadataRaw != nil {
+			acceptance.Transaction.MetadataRaw = append([]byte(nil), record.MetadataRaw...)
+			acceptance.Event.Payload.MetadataRaw = append([]byte(nil), record.MetadataRaw...)
+		}
 		key := acceptance.Transaction.Source + ":" + acceptance.Transaction.SourceReference
 		store.transactions[key] = storedTransaction{fingerprint: acceptance.Fingerprint, transactionID: acceptance.Transaction.ID, eventID: acceptance.Event.ID}
 		store.events[acceptance.Event.ID] = &storedEvent{event: acceptance.Event}

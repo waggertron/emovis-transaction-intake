@@ -40,10 +40,8 @@ type OutboxEvent struct {
 	Source          string
 	SourceReference string
 	TransactionID   string
-	// Deprecated: use Source for new events.
-	PartnerID string
-	Key       string
-	Payload   domain.Transaction
+	Key             string
+	Payload         domain.Transaction
 }
 
 type Acceptance struct {
@@ -71,8 +69,6 @@ type AcceptResult struct {
 	Kind    ResultKind
 	ID      string
 	EventID string
-	// Deprecated: use ID.
-	TransactionID string
 }
 
 type IntakeService struct {
@@ -124,7 +120,7 @@ func (service *IntakeService) Accept(ctx context.Context, command AcceptCommand)
 		return AcceptResult{}, fmt.Errorf("accept transaction: %w", err)
 	}
 
-	result := AcceptResult{ID: transaction.ID, TransactionID: transaction.ID, EventID: outcome.EventID}
+	result := AcceptResult{ID: transaction.ID, EventID: outcome.EventID}
 	switch outcome.Kind {
 	case StoreAccepted:
 		result.Kind = Accepted
@@ -135,7 +131,6 @@ func (service *IntakeService) Accept(ctx context.Context, command AcceptCommand)
 		}
 		result.Kind = Replayed
 		result.ID = outcome.TransactionID
-		result.TransactionID = outcome.TransactionID
 		return result, nil
 	case StoreConflict:
 		return AcceptResult{}, ErrConflict

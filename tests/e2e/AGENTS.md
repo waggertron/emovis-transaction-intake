@@ -9,7 +9,7 @@ Applies to end-to-end scripts under `tests/e2e/`.
 ## Local rules
 - Use a unique Compose project and explicit transaction fixture per test.
 - Use production images and adapters; deterministic fakes do not satisfy these tests.
-- Verify acceptance, Kafka publication, replay, conflict, persistence where applicable, dependency failure, and complete teardown.
+- Verify acceptance, Kafka publication, replay, contract-shaped 400 validation errors, raw numeric passthrough, persistence where applicable, dependency failure, and complete teardown.
 - Never retain containers, volumes, networks, ports, credentials, certificates, temporary files, or seeded state.
 
 ## Usage

@@ -23,14 +23,15 @@ func (err fakeSQLStateError) SQLState() string { return "23505" }
 
 func postgresAcceptance() app.Acceptance {
 	transaction := domain.Transaction{
-		ID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", PartnerID: "partner-west",
-		OccurredAt: time.Date(2026, 8, 16, 20, 30, 0, 0, time.UTC), AmountMinor: 725,
-		Currency: "USD", AgencyID: "agency-17", PlazaID: "plaza-4", LaneID: "lane-2", VehicleClass: domain.VehicleClassCar,
+		ID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", Source: "partner-west", SourceReference: "source-ref",
+		TransactionType: "toll", TransactionTimeUTC: time.Date(2026, 8, 16, 20, 30, 0, 0, time.UTC),
+		BaseAmount: "7.25", Currency: "USD", TransponderNumber: "tag",
+		LocationRaw: json.RawMessage(`{ "lane" : 9007199254740993 }`), MetadataRaw: json.RawMessage(`{ "rate" : 12.50 }`),
 	}
 	fingerprint, _ := transaction.Fingerprint()
 	return app.Acceptance{Transaction: transaction, Fingerprint: fingerprint, Event: app.OutboxEvent{
 		ID: "evt-1", Type: app.ReviewCandidateEventType, SchemaVersion: 1, OccurredAt: time.Date(2026, 8, 16, 22, 0, 0, 0, time.UTC),
-		PartnerID: transaction.PartnerID, TransactionID: transaction.ID, Key: transaction.PartnerID + ":" + transaction.ID, Payload: transaction,
+		Source: transaction.Source, SourceReference: transaction.SourceReference, TransactionID: transaction.ID, Key: transaction.Source + ":" + transaction.SourceReference, Payload: transaction,
 	}}
 }
 
@@ -44,11 +45,11 @@ func TestStoreAcceptsTransactionAndOutboxInOneSQLTransaction(t *testing.T) {
 	defer database.Close()
 	acceptance := postgresAcceptance()
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(selectIdentitySQL)).WithArgs(acceptance.Transaction.PartnerID, acceptance.Transaction.ID).WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(regexp.QuoteMeta(selectIdentitySQL)).WithArgs(acceptance.Transaction.Source, acceptance.Transaction.SourceReference).WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(regexp.QuoteMeta(insertTransactionSQL)).WithArgs(
-		acceptance.Transaction.ID, acceptance.Transaction.PartnerID, acceptance.Transaction.ID, acceptance.Fingerprint, sqlmock.AnyArg(), acceptance.Event.ID,
+		acceptance.Transaction.ID, acceptance.Transaction.Source, acceptance.Transaction.SourceReference, acceptance.Fingerprint, sqlmock.AnyArg(), acceptance.Transaction.LocationRaw, acceptance.Transaction.MetadataRaw, acceptance.Event.ID,
 	).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta(insertOutboxSQL)).WithArgs(acceptance.Event.ID, sqlmock.AnyArg(), acceptance.Event.OccurredAt).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertOutboxSQL)).WithArgs(acceptance.Event.ID, sqlmock.AnyArg(), acceptance.Event.Payload.LocationRaw, acceptance.Event.Payload.MetadataRaw, acceptance.Event.OccurredAt).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	result, err := NewStore(database).Accept(context.Background(), acceptance)
@@ -77,7 +78,7 @@ func TestStoreReturnsReplayOrConflictFromLockedIdentity(t *testing.T) {
 			defer database.Close()
 			acceptance := postgresAcceptance()
 			mock.ExpectBegin()
-			mock.ExpectQuery(regexp.QuoteMeta(selectIdentitySQL)).WithArgs(acceptance.Transaction.PartnerID, acceptance.Transaction.ID).
+			mock.ExpectQuery(regexp.QuoteMeta(selectIdentitySQL)).WithArgs(acceptance.Transaction.Source, acceptance.Transaction.SourceReference).
 				WillReturnRows(sqlmock.NewRows([]string{"id", "fingerprint", "event_id"}).AddRow("transaction-original", test.fingerprint, "evt-original"))
 			mock.ExpectCommit()
 			result, err := NewStore(database).Accept(context.Background(), acceptance)
@@ -124,7 +125,7 @@ func TestStoreReclassifiesConcurrentUniqueRaceAsReplay(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(selectIdentitySQL)).WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(regexp.QuoteMeta(insertTransactionSQL)).WillReturnError(fakeSQLStateError("duplicate identity"))
 	mock.ExpectRollback()
-	mock.ExpectQuery(regexp.QuoteMeta(readIdentitySQL)).WithArgs(acceptance.Transaction.PartnerID, acceptance.Transaction.ID).
+	mock.ExpectQuery(regexp.QuoteMeta(readIdentitySQL)).WithArgs(acceptance.Transaction.Source, acceptance.Transaction.SourceReference).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "fingerprint", "event_id"}).AddRow("transaction-winner", acceptance.Fingerprint, "evt-winner"))
 
 	result, err := NewStore(database).Accept(context.Background(), acceptance)
@@ -155,7 +156,7 @@ func TestStoreConcurrencyClassificationConflictAndFailure(t *testing.T) {
 			mock.ExpectQuery(regexp.QuoteMeta(selectIdentitySQL)).WillReturnError(sql.ErrNoRows)
 			mock.ExpectExec(regexp.QuoteMeta(insertTransactionSQL)).WillReturnError(fakeSQLStateError("duplicate identity"))
 			mock.ExpectRollback()
-			query := mock.ExpectQuery(regexp.QuoteMeta(readIdentitySQL)).WithArgs(acceptance.Transaction.PartnerID, acceptance.Transaction.ID)
+			query := mock.ExpectQuery(regexp.QuoteMeta(readIdentitySQL)).WithArgs(acceptance.Transaction.Source, acceptance.Transaction.SourceReference)
 			if test.queryErr != nil {
 				query.WillReturnError(test.queryErr)
 			} else {
@@ -195,9 +196,10 @@ func TestStoreClaimsOutboxWithSkipLockedLease(t *testing.T) {
 	database, mock, _ := sqlmock.New()
 	defer database.Close()
 	now := time.Date(2026, 8, 16, 23, 0, 0, 0, time.UTC)
-	payload, _ := json.Marshal(postgresAcceptance().Event)
+	acceptance := postgresAcceptance()
+	payload, _ := json.Marshal(acceptance.Event)
 	mock.ExpectQuery(regexp.QuoteMeta(claimPendingSQL)).WithArgs(now, 10, now.Add(30*time.Second), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"event_payload", "attempts", "claim_token"}).AddRow(payload, 2, "claim-1"))
+		WillReturnRows(sqlmock.NewRows([]string{"event_payload", "location_raw", "metadata_raw", "attempts", "claim_token"}).AddRow(payload, acceptance.Event.Payload.LocationRaw, acceptance.Event.Payload.MetadataRaw, 2, "claim-1"))
 	events, err := NewStore(database).ClaimPending(context.Background(), now, 30*time.Second, 10)
 	if err != nil || len(events) != 1 || events[0].Event.ID != "evt-1" || events[0].Attempts != 2 {
 		t.Fatalf("unexpected claim %#v, %v", events, err)
@@ -244,7 +246,7 @@ func TestSchemaDefinesAtomicIdentityAndOutboxLeaseState(t *testing.T) {
 	}
 	schema := string(payload)
 	for _, required := range []string{
-		"PRIMARY KEY (id)", "UNIQUE (source, source_reference)", "payload JSONB", "event_payload JSONB",
+		"PRIMARY KEY (id)", "UNIQUE (source, source_reference)", "payload JSONB", "event_payload JSONB", "location_raw BYTEA", "metadata_raw BYTEA",
 		"lease_until TIMESTAMPTZ", "claim_token TEXT", "ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS claim_token TEXT", "retry_at TIMESTAMPTZ", "CREATE INDEX IF NOT EXISTS outbox_dispatch_idx",
 	} {
 		if !strings.Contains(schema, required) {

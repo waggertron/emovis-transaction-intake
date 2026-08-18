@@ -19,6 +19,7 @@ Run Markdown/link and hierarchy checks.
 ## Elements
 | Element | Behavior |
 | --- | --- |
+| `2026-08-18-supplied-openapi.yaml` | Preserves the exact OpenAPI 3.0.3 contract supplied for the conformance remediation. |
 | `architecture` | Explains stable structure and topology. |
 | `adr` | Records significant architecture choices and rationale. |
 | `bugs` | Preserves confirmed defect reports, root causes, corrections, and regression evidence. |

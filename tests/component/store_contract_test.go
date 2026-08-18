@@ -1,8 +1,10 @@
 package component_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -292,6 +294,9 @@ func runTransactionStoreContract(t *testing.T, factory storeFactory) {
 	if err != nil || len(claimed) != 1 || claimed[0].Event.ID != accepted.Event.ID || claimed[0].Attempts != 0 {
 		t.Fatalf("first claim: %#v, %v", claimed, err)
 	}
+	if !bytes.Equal(claimed[0].Event.Payload.LocationRaw, accepted.Transaction.LocationRaw) || !bytes.Equal(claimed[0].Event.Payload.MetadataRaw, accepted.Transaction.MetadataRaw) {
+		t.Fatalf("raw audit bytes changed in store contract: %#v", claimed[0].Event.Payload)
+	}
 	firstClaim := claimed[0]
 	claimed, err = store.ClaimPending(ctx, now.Add(time.Second), 30*time.Second, 1)
 	if err != nil || len(claimed) != 0 {
@@ -349,7 +354,7 @@ func runTransactionStoreContract(t *testing.T, factory storeFactory) {
 }
 
 func contractAcceptance(eventID string) app.Acceptance {
-	transaction := domain.Transaction{ID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", Source: "partner-contract", SourceReference: "source-ref", TransactionType: "toll", TransactionTimeUTC: time.Date(2026, 8, 17, 6, 0, 0, 0, time.UTC), BaseAmount: "7.25", Currency: "USD", TransponderNumber: "tag"}
+	transaction := domain.Transaction{ID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", Source: "partner-contract", SourceReference: "source-ref", TransactionType: "toll", TransactionTimeUTC: time.Date(2026, 8, 17, 6, 0, 0, 0, time.UTC), BaseAmount: "7.25", Currency: "USD", TransponderNumber: "tag", LocationRaw: json.RawMessage(`{ "lane" : 9007199254740993 }`), MetadataRaw: json.RawMessage(`{ "rate" : 12.50 }`)}
 	fingerprint, _ := transaction.Fingerprint()
 	return app.Acceptance{Transaction: transaction, Fingerprint: fingerprint, Event: app.OutboxEvent{
 		ID: eventID, Type: app.ReviewCandidateEventType, SchemaVersion: 1,

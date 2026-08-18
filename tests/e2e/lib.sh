@@ -60,7 +60,7 @@ e2e_wait_for_api() {
 e2e_request() {
   local port="$1"
   local transaction_id="$2"
-  E2E_REQUEST="{\"source\":\"e2e-source\",\"source_reference\":\"${transaction_id}\",\"transaction_type\":\"toll\",\"transaction_time_utc\":\"2026-08-17T18:30:00Z\",\"base_amount\":\"7.25\",\"currency\":\"USD\",\"transponder_number\":\"0180012345678\"}"
+  E2E_REQUEST="{\"source\":\"e2e-source\",\"source_reference\":\"${transaction_id}\",\"transaction_type\":\"toll\",\"transaction_time_utc\":\"2026-08-17T18:30:00Z\",\"base_amount\":\"7.25\",\"currency\":\"USD\",\"transponder_number\":\"0180012345678\",\"location\":{\"lane\":9007199254740993},\"metadata\":{\"rate\":12.50}}"
   export E2E_REQUEST
   local status
   status="$(curl --silent --show-error -D "${E2E_TEMP_DIR}/first.headers" -o "${E2E_TEMP_DIR}/first.json" -w '%{http_code}' \
@@ -96,6 +96,8 @@ e2e_consume_event() {
     --from-beginning --max-messages 1 --timeout-ms 30000 >"${E2E_TEMP_DIR}/event.json"
   grep -Fq '"eventType":"transaction.review-candidate"' "${E2E_TEMP_DIR}/event.json"
   grep -Fq "\"source_reference\":\"${transaction_id}\"" "${E2E_TEMP_DIR}/event.json"
+  grep -Fq '"lane":9007199254740993' "${E2E_TEMP_DIR}/event.json"
+  grep -Fq '"rate":12.50' "${E2E_TEMP_DIR}/event.json"
 }
 
 e2e_assert_dependency_failure() {

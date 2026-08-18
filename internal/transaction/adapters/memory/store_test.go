@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -13,16 +15,15 @@ import (
 
 func testAcceptance() app.Acceptance {
 	transaction := domain.Transaction{
-		ID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", PartnerID: "partner-west",
-		OccurredAt: time.Date(2026, 8, 16, 20, 30, 0, 0, time.UTC), AmountMinor: 725,
-		Currency: "USD", AgencyID: "agency-17", PlazaID: "plaza-4", LaneID: "lane-2",
-		VehicleClass: domain.VehicleClassCar,
+		ID: "018f47a8-40d1-7e32-b6d6-4f4f8f9c9e01", Source: "partner-west", SourceReference: "source-ref",
+		TransactionType: "toll", TransactionTimeUTC: time.Date(2026, 8, 16, 20, 30, 0, 0, time.UTC),
+		BaseAmount: "7.25", Currency: "USD", TransponderNumber: "tag",
 	}
 	fingerprint, _ := transaction.Fingerprint()
 	return app.Acceptance{
 		Transaction: transaction,
 		Fingerprint: fingerprint,
-		Event:       app.OutboxEvent{ID: "evt-1", TransactionID: transaction.ID, PartnerID: transaction.PartnerID},
+		Event:       app.OutboxEvent{ID: "evt-1", Source: transaction.Source, SourceReference: transaction.SourceReference, TransactionID: transaction.ID, Payload: transaction},
 	}
 }
 
@@ -184,5 +185,25 @@ func TestStoreRejectsCompletionFromExpiredClaimOwner(t *testing.T) {
 	}
 	if err := store.MarkPublished(ctx, "evt-1", second[0].ClaimToken, now.Add(32*time.Second)); err != nil {
 		t.Fatalf("current owner publication: %v", err)
+	}
+}
+
+func TestStoreCopiesRawAuditBytes(t *testing.T) {
+	store := NewStore()
+	acceptance := testAcceptance()
+	acceptance.Transaction.MetadataRaw = json.RawMessage(`{ "large": 9007199254740993 }`)
+	acceptance.Event.Payload = acceptance.Transaction
+	acceptance.Fingerprint, _ = acceptance.Transaction.Fingerprint()
+	want := append([]byte(nil), acceptance.Transaction.MetadataRaw...)
+	if _, err := store.Accept(context.Background(), acceptance); err != nil {
+		t.Fatal(err)
+	}
+	acceptance.Transaction.MetadataRaw[2] = 'X'
+	claimed, err := store.ClaimPending(context.Background(), time.Now(), time.Minute, 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim=%#v err=%v", claimed, err)
+	}
+	if !bytes.Equal(claimed[0].Event.Payload.MetadataRaw, want) {
+		t.Fatalf("stored raw bytes were aliased: %s", claimed[0].Event.Payload.MetadataRaw)
 	}
 }

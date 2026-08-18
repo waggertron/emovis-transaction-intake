@@ -21,8 +21,8 @@ Run `go test ./internal/transaction/app` and its race-enabled form.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `intake.go` | Defines the intake use case, storage port, and outbox envelope. |
-| `intake_test.go` | Specifies intake orchestration, idempotency, and failure behavior. |
+| `intake.go` | Defines the intake use case, storage port, and raw-passthrough-capable outbox envelope. |
+| `intake_test.go` | Specifies intake orchestration, idempotency, validation-before-side-effects, and failure behavior. |
 | `outbox.go` | Defines fenced lease-based outbox dispatch and bounded retry policy. |
 | `outbox_test.go` | Specifies claim ownership, publication, retry, and terminal-failure policy. |
 
