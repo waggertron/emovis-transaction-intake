@@ -19,7 +19,7 @@ Run numbering, Markdown/link, and diff checks.
 ## Elements
 | Element | Behavior |
 | --- | --- |
-| `2026-08-18T08-26-05-0700-openapi-contract-conformance.md` | Tracks exact supplied-contract restoration, test-first behavior alignment, raw passthrough fidelity, durable local defaults, and complete delivery evidence. |
+| Active plan documents | A single timestamped plan appears here only while work remains active; completed plans move to `../archive/`. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).

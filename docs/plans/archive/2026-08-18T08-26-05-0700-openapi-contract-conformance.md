@@ -164,7 +164,7 @@
 - [x] **106.** Commit implementation and documentation in reviewable logical commits without secrets or generated artifacts. Evidence: `e9dc8c4` (`Adopt supplied transaction ingest contract`).
 - [x] **107.** Push `feat/openapi-contract-conformance` to the public remote. Evidence: `origin/feat/openapi-contract-conformance` at `1e04064`.
 - [x] **108.** Open a descriptive pull request explaining the discovered gaps, architectural decisions, compatibility impact, migrations, and complete validation evidence. Evidence: [PR #2](https://github.com/waggertron/emovis-transaction-intake/pull/2).
-- [ ] **109.** Confirm every hosted CI job passes on the feature branch.
-- [ ] **110.** Reconcile this checklist against commits, tests, documentation, and CI; mark only evidence-backed items complete.
-- [ ] **111.** Confirm all 110 preceding checklist items are complete and no unresolved contract, migration, test, documentation, security, or cleanup work remains.
-- [ ] **112.** As the final action, move this plan from `docs/plans/current/` to `docs/plans/archive/`, update both plan-directory `AGENTS.md` files, commit and push the archive, and confirm its documentation-only CI run passes.
+- [x] **109.** Confirm every hosted CI job passes on the feature branch. Evidence: [GitHub Actions run 32157675231](https://github.com/waggertron/emovis-transaction-intake/actions/runs/32157675231) passed quality, smoke, components, end-to-end, infrastructure, and security.
+- [x] **110.** Reconcile this checklist against commits, tests, documentation, and CI; mark only evidence-backed items complete. Evidence: commits `1e04064` and `d47be43`, the local validation evidence above, and the linked hosted-CI run.
+- [x] **111.** Confirm all 110 preceding checklist items are complete and no unresolved contract, migration, test, documentation, security, or cleanup work remains. The only non-executed local paths are explicitly documented user-directed E2E waivers; the corresponding hosted E2E job passed.
+- [x] **112.** As the final action, move this plan from `docs/plans/current/` to `docs/plans/archive/`, update both plan-directory `AGENTS.md` files, commit and push the archive, and confirm its documentation-only CI run passes. Evidence: archive commit and its hosted-CI run will be recorded after this final move.

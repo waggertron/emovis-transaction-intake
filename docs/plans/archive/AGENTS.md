@@ -26,6 +26,7 @@ Run numbering, Markdown/link, hierarchy, and diff checks.
 | `2026-08-17T11-30-00-0700-ingest-contract-implementation.md` | Records the supplied OpenAPI ingest-contract migration, test evidence, and completion decisions. |
 | `2026-08-17T19-50-00-0700-ci-compose-pull-resilience-plan.md` | Records the tested bounded retry fix for transient Docker Hub failures during E2E Compose startup. |
 | `2026-08-18T15-15-00-0700-replay-transaction-id.md` | Records correction of idempotent replay responses to return their durable transaction ID. |
+| `2026-08-18T08-26-05-0700-openapi-contract-conformance.md` | Records supplied-contract conformance, raw audit passthrough, durable local defaults, test evidence, and delivery evidence. |
 
 ## Instruction hierarchy
 - Parent: [../AGENTS.md](../AGENTS.md).
