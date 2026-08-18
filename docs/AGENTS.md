@@ -21,6 +21,7 @@ Run Markdown/link and hierarchy checks.
 | --- | --- |
 | `architecture` | Explains stable structure and topology. |
 | `adr` | Records significant architecture choices and rationale. |
+| `bugs` | Preserves confirmed defect reports, root causes, corrections, and regression evidence. |
 | `info` | Preserves source requirements. |
 | `infrastructure` | Documents cloud topology, local validation, and optional AWS verification. |
 | `onboarding` | Provides reusable repository-initiation and developer-orientation guidance. |
@@ -33,6 +34,7 @@ Run Markdown/link and hierarchy checks.
 - Parent: [../AGENTS.md](../AGENTS.md).
 - Child: [architecture/AGENTS.md](architecture/AGENTS.md).
 - Child: [adr/AGENTS.md](adr/AGENTS.md).
+- Child: [bugs/AGENTS.md](bugs/AGENTS.md).
 - Child: [info/AGENTS.md](info/AGENTS.md).
 - Child: [infrastructure/AGENTS.md](infrastructure/AGENTS.md).
 - Child: [onboarding/AGENTS.md](onboarding/AGENTS.md).
