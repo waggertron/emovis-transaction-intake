@@ -162,8 +162,8 @@
 - [x] **104.** Review the final diff against the supplied OpenAPI text and confirm zero unexplained contract deltas.
 - [x] **105.** Perform an adversarial contract review focused on omitted fields, nulls, Unicode, large numbers, retries, restarts, and concurrent duplicates.
 - [x] **106.** Commit implementation and documentation in reviewable logical commits without secrets or generated artifacts. Evidence: `e9dc8c4` (`Adopt supplied transaction ingest contract`).
-- [ ] **107.** Push `feat/openapi-contract-conformance` to the public remote.
-- [ ] **108.** Open a descriptive pull request explaining the discovered gaps, architectural decisions, compatibility impact, migrations, and complete validation evidence.
+- [x] **107.** Push `feat/openapi-contract-conformance` to the public remote. Evidence: `origin/feat/openapi-contract-conformance` at `1e04064`.
+- [x] **108.** Open a descriptive pull request explaining the discovered gaps, architectural decisions, compatibility impact, migrations, and complete validation evidence. Evidence: [PR #2](https://github.com/waggertron/emovis-transaction-intake/pull/2).
 - [ ] **109.** Confirm every hosted CI job passes on the feature branch.
 - [ ] **110.** Reconcile this checklist against commits, tests, documentation, and CI; mark only evidence-backed items complete.
 - [ ] **111.** Confirm all 110 preceding checklist items are complete and no unresolved contract, migration, test, documentation, security, or cleanup work remains.
